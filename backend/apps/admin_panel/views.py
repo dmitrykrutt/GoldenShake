@@ -67,7 +67,7 @@ class SupportQueueViewSet(
         RoomMembership.objects.get_or_create(
             room=ticket.room, user=request.user, defaults={"role": RoomMembership.Role.SUPPORT}
         )
-        log_action(request.user, AdminAction.Action.CLOSE_TICKET, "support_ticket", ticket.id, "assigned")
+        log_action(request.user, AdminAction.Action.ASSIGN_TICKET, "support_ticket", ticket.id, "assigned")
         return Response(SupportTicketSerializer(ticket, context={"request": request}).data)
 
     @extend_schema(request=None, responses={200: SupportTicketSerializer})

@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             name='AdminAction',
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('action', models.CharField(choices=[('verify_user', 'Verified user'), ('reject_verification', 'Rejected verification'), ('ban_user', 'Banned user'), ('unban_user', 'Unbanned user'), ('resolve_dispute', 'Resolved dispute'), ('close_ticket', 'Closed support ticket'), ('grant_coins', 'Granted coins')], max_length=32)),
+                ('action', models.CharField(choices=[('verify_user', 'Verified user'), ('reject_verification', 'Rejected verification'), ('ban_user', 'Banned user'), ('unban_user', 'Unbanned user'), ('resolve_dispute', 'Resolved dispute'), ('assign_ticket', 'Assigned support ticket'), ('close_ticket', 'Closed support ticket'), ('grant_coins', 'Granted coins')], max_length=32)),
                 ('target_type', models.CharField(blank=True, default='', max_length=64)),
                 ('target_id', models.CharField(blank=True, default='', max_length=64)),
                 ('note', models.TextField(blank=True, default='')),

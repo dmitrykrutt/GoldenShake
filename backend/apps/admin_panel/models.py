@@ -14,6 +14,7 @@ class AdminAction(models.Model):
         BAN_USER = "ban_user", "Banned user"
         UNBAN_USER = "unban_user", "Unbanned user"
         RESOLVE_DISPUTE = "resolve_dispute", "Resolved dispute"
+        ASSIGN_TICKET = "assign_ticket", "Assigned support ticket"
         CLOSE_TICKET = "close_ticket", "Closed support ticket"
         GRANT_COINS = "grant_coins", "Granted coins"
 

@@ -78,11 +78,6 @@ class GarantDeal(models.Model):
     def __str__(self) -> str:
         return f"{self.title} ({self.status})"
 
-    def save(self, *args, **kwargs):
-        if not self.platform_fee_pct:
-            self.platform_fee_pct = getattr(settings, "GARANT_PLATFORM_FEE_PCT", 5)
-        super().save(*args, **kwargs)
-
     @property
     def platform_fee(self):
         return (self.price_crypto * self.platform_fee_pct) / 100
