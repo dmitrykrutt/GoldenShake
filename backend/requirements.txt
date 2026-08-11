@@ -1,0 +1,51 @@
+# --- Core framework ---
+Django==4.2.16
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+django-ratelimit==4.1.0
+drf-spectacular==0.27.2
+
+# --- ASGI / realtime ---
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+uvicorn==0.30.6
+gunicorn==22.0.0
+whitenoise==6.7.0
+
+# --- Database & cache ---
+psycopg2-binary==2.9.9
+redis==5.0.8
+
+# --- Async tasks ---
+celery==5.4.0
+
+# --- Storage / media ---
+django-storages==1.14.4
+boto3==1.35.10
+Pillow==10.4.0
+
+# --- Crypto / security ---
+PyNaCl==1.5.0
+cryptography==43.0.1
+argon2-cffi==23.1.0
+pyotp==2.9.0
+qrcode==7.4.2
+
+# --- Integrations ---
+python-telegram-bot==21.5
+firebase-admin==6.5.0
+requests==2.32.3
+
+# --- Config ---
+python-decouple==3.8
+
+# --- Testing ---
+pytest==8.3.2
+pytest-django==4.9.0
+factory-boy==3.3.1
+Faker==28.1.0
+
+# --- async tests ---
+pytest-asyncio==0.24.0

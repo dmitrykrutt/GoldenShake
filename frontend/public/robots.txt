@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /chats/
+Disallow: /garant/
+Disallow: /admin/
+Disallow: /settings
+Allow: /

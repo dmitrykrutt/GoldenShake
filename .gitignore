@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+db.sqlite3
+test_db.sqlite3
+
+# Django
+backend/media/
+backend/staticfiles/
+backend/static_root/
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+firebase-credentials.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

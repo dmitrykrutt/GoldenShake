@@ -1,0 +1,30 @@
+{
+  "name": "goldenshake-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GoldenShake \u2014 premium secure messenger web client",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@heroicons/react": "2.1.5",
+    "axios": "1.19.0",
+    "framer-motion": "11.5.4",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.35",
+    "postcss": "8.5.26",
+    "tailwindcss": "3.4.19"
+  },
+  "overrides": {
+    "postcss": "8.5.26"
+  }
+}

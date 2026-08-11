@@ -1,0 +1,8 @@
+from django.apps import AppConfig
+
+
+class GarantConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.garant"
+    label = "garant"
+    verbose_name = "Guarantee Deals"
