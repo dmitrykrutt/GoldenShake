@@ -1,0 +1,12 @@
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+*.sqlite3
+media
+staticfiles
+.env*
+!.env.example
+Dockerfile
+.dockerignore
