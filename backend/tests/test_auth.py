@@ -1,5 +1,6 @@
 """Tests for registration, e-mail whitelisting, invites, TOTP and login."""
 import pytest
+from django.core import mail
 from django.urls import reverse
 
 from apps.accounts.models import EmailConfirmation, InviteLink, TOTPDevice, UserInvite
@@ -138,6 +139,22 @@ class TestInviteSystem:
 
 
 class TestLoginFlow:
+    def test_login_request_sends_email_with_generated_code(self, api_client, user):
+        response = api_client.post(
+            reverse("v1:accounts:login-request-code"),
+            {"identifier": user.email, "password": VALID_PASSWORD},
+            format="json",
+        )
+        assert response.status_code == 200, response.data
+
+        code = EmailConfirmation.objects.filter(
+            user=user, purpose=EmailConfirmation.Purpose.LOGIN
+        ).latest("created_at")
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == [user.email]
+        assert mail.outbox[0].from_email == "GoldenShake <no-reply@goldenshake.app>"
+        assert code.code in mail.outbox[0].body
+
     def test_login_requires_email_code(self, api_client, user):
         response = api_client.post(
             reverse("v1:accounts:login"),
@@ -194,6 +211,8 @@ class TestLoginFlow:
             format="json",
         )
         assert bad.status_code == 400
+        code.refresh_from_db()
+        assert code.is_used is False
 
         good = api_client.post(
             reverse("v1:accounts:login"),
