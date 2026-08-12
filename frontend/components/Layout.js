@@ -25,8 +25,10 @@ const NAV = [
 ];
 
 export function Logo({ compact = false }) {
+  const { user } = useAuth();
+  const logoHref = user ? '/chats' : '/';
   return (
-    <Link href="/" className="flex items-center gap-2.5">
+    <Link href={logoHref} className="flex items-center gap-2.5">
       <span className="grid h-9 w-9 place-items-center rounded-xl bg-gold-gradient text-black shadow-gold">
         <SparklesIcon className="h-5 w-5" />
       </span>

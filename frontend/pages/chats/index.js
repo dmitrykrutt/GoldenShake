@@ -13,6 +13,7 @@ export default function ChatsPage() {
   const [creating, setCreating] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [error, setError] = useState('');
+  const [createError, setCreateError] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -39,16 +40,27 @@ export default function ChatsPage() {
 
   const createChat = async (event) => {
     event.preventDefault();
-    setError('');
+    setCreateError('');
     try {
+      const username = newUsername.replace('@', '').trim();
+      // Check if the user exists first; surface a friendly 404 message.
+      try {
+        await api.get(`/accounts/profiles/${encodeURIComponent(username)}/`);
+      } catch (lookupErr) {
+        if (lookupErr?.response?.status === 404) {
+          setCreateError('Пользователь не найден.');
+          return;
+        }
+      }
       const { data } = await api.post('/chat/rooms/', {
-        participant_usernames: [newUsername.replace('@', '').trim()],
+        participant_usernames: [username],
       });
       setCreating(false);
       setNewUsername('');
+      setCreateError('');
       setRooms((prev) => [data, ...prev.filter((r) => r.id !== data.id)]);
     } catch (err) {
-      setError(apiError(err, 'Could not start the chat.'));
+      setCreateError(apiError(err, 'Could not start the chat.'));
     }
   };
 
@@ -94,14 +106,17 @@ export default function ChatsPage() {
               required
               className="input"
               value={newUsername}
-              onChange={(event) => setNewUsername(event.target.value)}
+              onChange={(event) => { setNewUsername(event.target.value); setCreateError(''); }}
               placeholder="@nikolai"
             />
+            {createError && (
+              <p className="mt-2 text-xs text-red-400">{createError}</p>
+            )}
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
                 className="btn-dark flex-1"
-                onClick={() => setCreating(false)}
+                onClick={() => { setCreating(false); setCreateError(''); }}
               >
                 Cancel
               </button>
