@@ -369,11 +369,7 @@ class LoginSerializer(serializers.Serializer):
         from rest_framework_simplejwt.tokens import RefreshToken
 
         user = self.validated_data["user"]
-        confirmation = EmailConfirmation.objects.select_for_update().get(
-            pk=self.validated_data["confirmation"].pk
-        )
-        if not confirmation.is_valid():
-            raise serializers.ValidationError({"email_code": "Invalid or expired e-mail code."})
+        confirmation = self.validated_data["confirmation"]
         confirmation.consume()
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
