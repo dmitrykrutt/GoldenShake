@@ -328,6 +328,8 @@ class LoginSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         identifier = attrs["identifier"].strip()
+        email_code = attrs["email_code"].strip()
+        totp_code = attrs.get("totp_code", "").strip()
         user = User.objects.filter(
             Q(email__iexact=identifier) | Q(phone=identifier)
         ).first()
@@ -341,7 +343,7 @@ class LoginSerializer(serializers.Serializer):
         confirmation = (
             EmailConfirmation.objects.filter(
                 user=user,
-                code=attrs["email_code"],
+                code=email_code,
                 is_used=False,
                 purpose=EmailConfirmation.Purpose.LOGIN,
             )
@@ -351,17 +353,24 @@ class LoginSerializer(serializers.Serializer):
         if confirmation is None or not confirmation.is_valid():
             raise serializers.ValidationError({"email_code": "Invalid or expired e-mail code."})
 
-        if user.totp_enabled and not verify_totp(user.totp_secret, attrs.get("totp_code", "")):
+        if user.totp_enabled and not totp_code:
+            raise serializers.ValidationError({"totp_code": "Authenticator code is required."})
+        if user.totp_enabled and not verify_totp(user.totp_secret, totp_code):
             raise serializers.ValidationError({"totp_code": "Invalid authenticator code."})
 
-        confirmation.consume()
+        attrs["email_code"] = email_code
+        attrs["totp_code"] = totp_code
         attrs["user"] = user
+        attrs["confirmation"] = confirmation
         return attrs
 
+    @transaction.atomic
     def save(self, **kwargs):
         from rest_framework_simplejwt.tokens import RefreshToken
 
         user = self.validated_data["user"]
+        confirmation = self.validated_data["confirmation"]
+        confirmation.consume()
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
         refresh = RefreshToken.for_user(user)
