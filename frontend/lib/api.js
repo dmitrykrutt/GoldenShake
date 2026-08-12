@@ -57,7 +57,7 @@ api.interceptors.response.use(
     try {
       refreshing =
         refreshing ||
-        axios.post(`${API_URL}/api/v1/auth/token/refresh/`, {
+        axios.post(`${API_URL}/api/v1/accounts/token/refresh/`, {
           refresh: tokens.refresh,
         });
       const { data } = await refreshing;
