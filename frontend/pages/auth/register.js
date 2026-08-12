@@ -3,14 +3,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Layout, { Logo } from '../../components/Layout';
 import api, { apiError } from '../../lib/api';
-import { ALLOWED_EMAIL_DOMAINS } from '../../lib/constants';
 
 export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     invite_token: '',
-    email: '',
     username: '',
     password: '',
     password_confirm: '',
@@ -21,7 +19,6 @@ export default function RegisterPage() {
   });
   const [inviteState, setInviteState] = useState(null);
   const [totpSetup, setTotpSetup] = useState(null);
-  const [emailCode, setEmailCode] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -67,7 +64,6 @@ export default function RegisterPage() {
     try {
       const { data } = await api.post('/accounts/register/', {
         invite_token: form.invite_token,
-        email: form.email,
         username: form.username,
         password: form.password,
         password_confirm: form.password_confirm,
@@ -77,25 +73,10 @@ export default function RegisterPage() {
         newsletter_opt_in: form.newsletter_opt_in,
       });
       setTotpSetup(data.totp_setup);
-      setNotice('We sent a 6-digit confirmation code to your inbox.');
+      setNotice('Account created. Set up your authenticator app and continue to sign in.');
       setStep(3);
     } catch (err) {
       setError(apiError(err, 'Registration failed.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const confirmEmail = async (event) => {
-    event.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      await api.post('/accounts/email/confirm/', { email: form.email, code: emailCode });
-      setNotice('E-mail confirmed. Now activate your authenticator app.');
-      setStep(4);
-    } catch (err) {
-      setError(apiError(err, 'Invalid confirmation code.'));
     } finally {
       setBusy(false);
     }
@@ -106,12 +87,8 @@ export default function RegisterPage() {
     setError('');
     setBusy(true);
     try {
-      await api.post('/accounts/login/request-code/', {
-        identifier: form.email,
-        password: form.password,
-      });
       router.push(
-        `/auth/login?identifier=${encodeURIComponent(form.email)}&totp=${encodeURIComponent(totpCode)}`
+        `/auth/login?username=${encodeURIComponent(form.username)}&totp=${encodeURIComponent(totpCode)}`
       );
     } catch (err) {
       setError(apiError(err, 'Could not start the login flow.'));
@@ -130,7 +107,7 @@ export default function RegisterPage() {
 
           <div className="card">
             <div className="mb-6 flex items-center gap-2">
-              {[1, 2, 3, 4].map((n) => (
+              {[1, 2, 3].map((n) => (
                 <span
                   key={n}
                   className={`h-1 flex-1 rounded-full ${step >= n ? 'bg-gold' : 'bg-graphite-lighter'}`}
@@ -175,26 +152,8 @@ export default function RegisterPage() {
             {step === 2 && (
               <form onSubmit={submitRegistration}>
                 <h1 className="text-2xl">Create your account</h1>
-                <p className="mt-2 text-xs text-neutral-500">
-                  Allowed e-mail providers: {ALLOWED_EMAIL_DOMAINS.join(', ')}
-                </p>
 
                 <div className="mt-5 space-y-4">
-                  <div>
-                    <label className="label" htmlFor="email">
-                      E-mail
-                    </label>
-                    <input
-                      id="email"
-                      type="email"
-                      required
-                      className="input"
-                      value={form.email}
-                      onChange={set('email')}
-                      placeholder="you@protonmail.com"
-                    />
-                  </div>
-
                   <div>
                     <label className="label" htmlFor="username">
                       Username
@@ -295,26 +254,6 @@ export default function RegisterPage() {
             )}
 
             {step === 3 && (
-              <form onSubmit={confirmEmail}>
-                <h1 className="text-2xl">Confirm your e-mail</h1>
-                <p className="mt-2 text-sm text-neutral-400">
-                  Enter the 6-digit code we sent to <strong>{form.email}</strong>.
-                </p>
-                <input
-                  className="input mt-6 text-center font-mono text-2xl tracking-[0.5em]"
-                  maxLength={6}
-                  inputMode="numeric"
-                  value={emailCode}
-                  onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ''))}
-                  placeholder="000000"
-                />
-                <button type="submit" disabled={busy} className="btn-primary mt-6 w-full">
-                  {busy ? 'Verifying…' : 'Confirm e-mail'}
-                </button>
-              </form>
-            )}
-
-            {step === 4 && (
               <form onSubmit={activateTotp}>
                 <h1 className="text-2xl">Two-factor authentication</h1>
                 <p className="mt-2 text-sm text-neutral-400">

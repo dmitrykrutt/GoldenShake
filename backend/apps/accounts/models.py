@@ -10,40 +10,36 @@ from django.utils import timezone
 
 from apps.accounts.validators import validate_email_domain
 
-
 def generate_invite_token() -> str:
     """Return a URL-safe, unguessable invite token."""
     return secrets.token_urlsafe(24)
-
 
 def generate_numeric_code(length: int = 6) -> str:
     """Return a cryptographically strong numeric confirmation code."""
     return "".join(str(secrets.randbelow(10)) for _ in range(length))
 
-
 class UserManager(BaseUserManager):
-    """Manager that enforces e-mail normalisation and provider whitelisting."""
+    """Manager that handles optional e-mail and username-based accounts."""
 
     use_in_migrations = True
 
     def _create_user(self, email, username, password, **extra_fields):
-        if not email:
-            raise ValueError("Users must provide an e-mail address.")
+
         if not username:
             raise ValueError("Users must provide a username.")
-        email = self.normalize_email(email).lower()
+        email = self.normalize_email(email).lower() if email else None
         user = self.model(email=email, username=username, **extra_fields)
         user.set_password(password)
         user.full_clean(exclude=["password"], validate_unique=False)
         user.save(using=self._db)
         return user
 
-    def create_user(self, email, username, password=None, **extra_fields):
+    def create_user(self, email=None, username=None, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(email, username, password, **extra_fields)
 
-    def create_superuser(self, email, username, password=None, **extra_fields):
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_verified", True)
@@ -54,7 +50,6 @@ class UserManager(BaseUserManager):
             raise ValueError("Superuser must have is_superuser=True.")
         return self._create_user(email, username, password, **extra_fields)
 
-
 class User(AbstractBaseUser, PermissionsMixin):
     """Primary account entity for GoldenShake."""
 
@@ -64,7 +59,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         BLACK = "black", "Black"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True, validators=[validate_email_domain])
+    email = models.EmailField(
+        unique=True, null=True, blank=True, validators=[validate_email_domain]
+    )
     username = models.CharField(max_length=32, unique=True)
     phone = models.CharField(max_length=20, blank=True, default="")
 
@@ -107,8 +104,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username"]
+    USERNAME_FIELD = "username"
+    REQUIRED_FIELDS = []
 
     class Meta:
         db_table = "accounts_user"
@@ -119,11 +116,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         ]
 
     def __str__(self) -> str:
-        return f"{self.username} <{self.email}>"
+        return f"{self.username} <{self.email or 'no-email'}>"
 
     def save(self, *args, **kwargs):
         if self.email:
             self.email = self.email.lower().strip()
+        else:
+            self.email = None
         super().save(*args, **kwargs)
 
     @property
@@ -137,7 +136,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         self.is_online = online
         self.last_seen = timezone.now()
         self.save(update_fields=["is_online", "last_seen"])
-
 
 class InviteLink(models.Model):
     """Invite links are the only way to join GoldenShake."""
@@ -177,7 +175,6 @@ class InviteLink(models.Model):
             self.is_active = False
         self.save(update_fields=["use_count", "is_active"])
 
-
 class UserInvite(models.Model):
     """Records the inviter → invitee relation used for coin rewards."""
 
@@ -199,7 +196,6 @@ class UserInvite(models.Model):
 
     def __str__(self) -> str:
         return f"{self.inviter_id} → {self.invitee_id}"
-
 
 class EmailConfirmation(models.Model):
     """Single-use 6-digit e-mail OTP for registration and login."""
@@ -242,7 +238,6 @@ class EmailConfirmation(models.Model):
         self.is_used = True
         self.save(update_fields=["is_used"])
 
-
 class TOTPDevice(models.Model):
     """Authenticator-app device bound to a user."""
 
@@ -258,7 +253,6 @@ class TOTPDevice(models.Model):
 
     def __str__(self) -> str:
         return f"TOTP for {self.user_id} ({'confirmed' if self.confirmed else 'pending'})"
-
 
 class VerificationRequest(models.Model):
     """Request for the golden verification badge, reviewed by staff."""

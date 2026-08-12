@@ -12,11 +12,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.accounts.models import InviteLink, VerificationRequest
 from apps.accounts.serializers import (
-    AllowedDomainsSerializer,
-    EmailConfirmSerializer,
     GDPRRequestSerializer,
     InviteLinkSerializer,
-    LoginRequestCodeSerializer,
     LoginSerializer,
     ProfileSerializer,
     PublicUserSerializer,
@@ -28,10 +25,6 @@ from apps.accounts.serializers import (
 from apps.accounts.totp import build_totp_setup_payload, generate_totp_secret
 
 User = get_user_model()
-
-# The whitelist is duplicated here for readability; settings remains the source of truth.
-ALLOWED_DOMAINS = settings.ALLOWED_EMAIL_DOMAINS
-
 
 @extend_schema(tags=["auth"])
 class RegisterView(APIView):
@@ -49,53 +42,8 @@ class RegisterView(APIView):
 
 
 @extend_schema(tags=["auth"])
-class AllowedEmailDomainsView(APIView):
-    """Expose the server-side e-mail provider whitelist."""
-
-    permission_classes = [AllowAny]
-    serializer_class = AllowedDomainsSerializer
-
-    @extend_schema(responses={200: AllowedDomainsSerializer})
-    def get(self, request):
-        return Response(AllowedDomainsSerializer.current())
-
-
-@extend_schema(tags=["auth"])
-class EmailConfirmView(APIView):
-    permission_classes = [AllowAny]
-    serializer_class = EmailConfirmSerializer
-
-    @extend_schema(request=EmailConfirmSerializer, responses={200: UserSerializer})
-    def post(self, request):
-        serializer = EmailConfirmSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(UserSerializer(user).data)
-
-
-@extend_schema(tags=["auth"])
-class LoginRequestCodeView(APIView):
-    """Step 1: verify credentials and e-mail a one-time code."""
-
-    permission_classes = [AllowAny]
-    serializer_class = LoginRequestCodeSerializer
-
-    @extend_schema(request=LoginRequestCodeSerializer, responses={200: dict})
-    def post(self, request):
-        serializer = LoginRequestCodeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(
-            {
-                "detail": "A one-time code has been sent to your e-mail address.",
-                "totp_required": user.totp_enabled,
-            }
-        )
-
-
-@extend_schema(tags=["auth"])
 class LoginView(APIView):
-    """Step 2: credentials + e-mail OTP + TOTP → JWT pair."""
+    """Username + password + optional TOTP → JWT pair."""
 
     permission_classes = [AllowAny]
     serializer_class = LoginSerializer
@@ -139,7 +87,7 @@ class TOTPSetupView(APIView):
         if not user.totp_secret:
             user.totp_secret = generate_totp_secret()
             user.save(update_fields=["totp_secret"])
-        return Response(build_totp_setup_payload(user.email, user.totp_secret))
+        return Response(build_totp_setup_payload(user.username, user.totp_secret))
 
     @extend_schema(request=TOTPActivateSerializer, responses={200: UserSerializer})
     def post(self, request):
