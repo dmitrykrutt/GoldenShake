@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -264,7 +265,7 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=not EMAIL_USE_SSL, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 if EMAIL_USE_SSL and EMAIL_USE_TLS:
-    EMAIL_USE_TLS = False
+    raise ImproperlyConfigured("EMAIL_USE_SSL and EMAIL_USE_TLS cannot both be enabled.")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="GoldenShake <no-reply@goldenshake.app>")
 
 # --------------------------------------------------------------------------
