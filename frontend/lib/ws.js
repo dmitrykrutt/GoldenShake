@@ -4,6 +4,17 @@ export const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
   API_URL.replace(/^http/, 'ws');
 
+function resolveWsBaseUrl() {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL.replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}`;
+  }
+  return API_URL.replace(/^http/, 'ws').replace(/\/$/, '');
+}
+
 /**
  * Opens an authenticated WebSocket with automatic exponential-backoff reconnect.
  * Returns a handle with `send(payload)` and `close()`.
@@ -17,7 +28,8 @@ export function connect(path, { onMessage, onOpen, onClose } = {}) {
   const open = () => {
     const token = tokens.access;
     const separator = path.includes('?') ? '&' : '?';
-    const url = `${WS_URL}${path}${token ? `${separator}token=${token}` : ''}`;
+    const baseUrl = resolveWsBaseUrl();
+    const url = `${baseUrl}${path}${token ? `${separator}token=${token}` : ''}`;
     socket = new WebSocket(url);
 
     socket.onopen = () => {

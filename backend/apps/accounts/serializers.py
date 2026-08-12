@@ -191,7 +191,8 @@ class RegisterSerializer(serializers.Serializer):
 
         secret = generate_totp_secret()
         user.totp_secret = secret
-        user.save(update_fields=["totp_secret"])
+        user.totp_enabled = True
+        user.save(update_fields=["totp_secret", "totp_enabled"])
         TOTPDevice.objects.create(user=user, secret=secret, confirmed=False)
 
         invite.consume()
