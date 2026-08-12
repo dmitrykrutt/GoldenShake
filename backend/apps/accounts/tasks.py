@@ -3,7 +3,6 @@ import json
 import logging
 
 from celery import shared_task
-from django.conf import settings
 from django.contrib.auth import get_user_model
 
 logger = logging.getLogger(__name__)
@@ -11,38 +10,17 @@ logger = logging.getLogger(__name__)
 
 @shared_task(name="accounts.send_email_confirmation", bind=True, max_retries=3)
 def send_email_confirmation_task(self, user_id: str, code: str):
-    from apps.notifications.tasks import send_email_task
-
-    User = get_user_model()
-    try:
-        user = User.objects.get(id=user_id)
-    except User.DoesNotExist:
-        logger.warning("send_email_confirmation: user %s vanished", user_id)
-        return False
-    return send_email_task(
-        user.email,
-        "Confirm your GoldenShake account",
-        f"Your GoldenShake confirmation code is {code}. "
-        f"It expires in {settings.EMAIL_CODE_TTL_MINUTES} minutes.",
+    logger.info(
+        "send_email_confirmation_task disabled: user_id=%s code=%s",
+        user_id,
+        code,
     )
+    return True
 
 
 @shared_task(name="accounts.send_login_code", bind=True, max_retries=3)
 def send_login_code_task(self, user_id: str, code: str):
-    from apps.notifications.tasks import send_email_task, send_sms_via_telegram
-
-    User = get_user_model()
-    try:
-        user = User.objects.get(id=user_id)
-    except User.DoesNotExist:
-        return False
-    send_email_task(
-        user.email,
-        "Your GoldenShake login code",
-        f"Your one-time login code is {code}. If this wasn't you, change your password now.",
-    )
-    if user.telegram_chat_id:
-        send_sms_via_telegram(user.telegram_chat_id, f"GoldenShake login code: {code}")
+    logger.info("send_login_code_task disabled: user_id=%s code=%s", user_id, code)
     return True
 
 

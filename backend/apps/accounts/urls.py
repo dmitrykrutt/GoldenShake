@@ -17,9 +17,6 @@ app_name = "accounts"
 
 urlpatterns = [
     path("register/", views.RegisterView.as_view(), name="register"),
-    path("register/allowed-domains/", views.AllowedEmailDomainsView.as_view(), name="allowed-domains"),
-    path("email/confirm/", views.EmailConfirmView.as_view(), name="email-confirm"),
-    path("login/request-code/", views.LoginRequestCodeView.as_view(), name="login-request-code"),
     path("login/", views.LoginView.as_view(), name="login"),
     path("logout/", views.LogoutView.as_view(), name="logout"),
     path("token/refresh/", views.TokenRefreshDocView.as_view(), name="token-refresh"),

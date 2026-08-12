@@ -15,9 +15,9 @@ def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
 
-def get_provisioning_uri(email: str, secret: str) -> str:
+def get_provisioning_uri(account_name: str, secret: str) -> str:
     """otpauth:// URI understood by Google Authenticator / Aegis / 1Password."""
-    return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=TOTP_ISSUER)
+    return pyotp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=TOTP_ISSUER)
 
 
 def generate_qr_code_data_uri(uri: str) -> str:
@@ -42,8 +42,8 @@ def verify_totp(secret: str, code: str, valid_window: int = 1) -> bool:
         return False
 
 
-def build_totp_setup_payload(email: str, secret: str) -> dict:
-    uri = get_provisioning_uri(email, secret)
+def build_totp_setup_payload(account_name: str, secret: str) -> dict:
+    uri = get_provisioning_uri(account_name, secret)
     return {
         "secret": secret,
         "otpauth_uri": uri,

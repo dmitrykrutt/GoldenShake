@@ -1,6 +1,5 @@
-"""Tests for registration, e-mail whitelisting, invites, TOTP and login."""
+"""Tests for registration, invites, TOTP and login."""
 import pytest
-from django.core import mail
 from django.urls import reverse
 
 from apps.accounts.models import EmailConfirmation, InviteLink, TOTPDevice, UserInvite
@@ -14,7 +13,6 @@ VALID_PASSWORD = "GoldenShake!2024"
 
 def register_payload(invite_token, **overrides):
     payload = {
-        "email": "new.member@gmail.com",
         "username": "new_member",
         "password": VALID_PASSWORD,
         "password_confirm": VALID_PASSWORD,
@@ -35,30 +33,6 @@ class TestRegistration:
         assert response.data["user"]["username"] == "new_member"
         assert response.data["totp_setup"]["qr_code"].startswith("data:image/png;base64,")
 
-    def test_register_rejects_disallowed_email_provider(self, api_client, invite_link):
-        response = api_client.post(
-            reverse("v1:accounts:register"),
-            register_payload(invite_link.hash_token, email="hacker@example.com"),
-            format="json",
-        )
-        assert response.status_code == 400
-        assert "email" in response.data
-
-    @pytest.mark.parametrize(
-        "domain", ["gmail.com", "yahoo.com", "protonmail.com", "tutanota.com", "tutamail.com", "mail.ru"]
-    )
-    def test_all_whitelisted_providers_accepted(self, api_client, invite_link, domain):
-        response = api_client.post(
-            reverse("v1:accounts:register"),
-            register_payload(
-                invite_link.hash_token,
-                email=f"member@{domain}",
-                username=f"member_{domain.split('.')[0]}",
-            ),
-            format="json",
-        )
-        assert response.status_code == 201, response.data
-
     def test_register_requires_valid_invite(self, api_client):
         response = api_client.post(
             reverse("v1:accounts:register"), register_payload("not-a-real-token"), format="json"
@@ -74,7 +48,7 @@ class TestRegistration:
         )
         assert response.status_code == 400
 
-    def test_register_creates_totp_device_and_email_code(self, api_client, invite_link):
+    def test_register_creates_totp_device_without_email_code(self, api_client, invite_link):
         api_client.post(
             reverse("v1:accounts:register"), register_payload(invite_link.hash_token), format="json"
         )
@@ -82,13 +56,8 @@ class TestRegistration:
 
         user = get_user_model().objects.get(username="new_member")
         assert TOTPDevice.objects.filter(user=user, confirmed=False).exists()
-        assert EmailConfirmation.objects.filter(user=user, is_used=False).exists()
+        assert not EmailConfirmation.objects.filter(user=user, is_used=False).exists()
         assert user.totp_secret
-
-    def test_allowed_domains_endpoint(self, api_client):
-        response = api_client.get(reverse("v1:accounts:allowed-domains"))
-        assert response.status_code == 200
-        assert "gmail.com" in response.data["domains"]
 
 
 class TestInviteSystem:
@@ -103,7 +72,6 @@ class TestInviteSystem:
                 reverse("v1:accounts:register"),
                 register_payload(
                     invite_link.hash_token,
-                    email=f"member{index}@gmail.com",
                     username=f"member{index}",
                 ),
                 format="json",
@@ -116,7 +84,7 @@ class TestInviteSystem:
 
         response = api_client.post(
             reverse("v1:accounts:register"),
-            register_payload(invite_link.hash_token, email="late@gmail.com", username="late_one"),
+            register_payload(invite_link.hash_token, username="late_one"),
             format="json",
         )
         assert response.status_code == 400
@@ -139,49 +107,14 @@ class TestInviteSystem:
 
 
 class TestLoginFlow:
-    def test_login_request_sends_email_with_generated_code(self, api_client, user):
+    def test_login_returns_jwt_with_username_password(self, api_client, user):
         response = api_client.post(
-            reverse("v1:accounts:login-request-code"),
-            {"identifier": user.email, "password": VALID_PASSWORD},
+            reverse("v1:accounts:login"),
+            {"username": user.username, "password": VALID_PASSWORD},
             format="json",
         )
         assert response.status_code == 200, response.data
-
-        code = EmailConfirmation.objects.filter(
-            user=user, purpose=EmailConfirmation.Purpose.LOGIN
-        ).latest("created_at")
-        assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == [user.email]
-        assert mail.outbox[0].from_email == "GoldenShake <no-reply@goldenshake.app>"
-        assert code.code in mail.outbox[0].body
-
-    def test_login_requires_email_code(self, api_client, user):
-        response = api_client.post(
-            reverse("v1:accounts:login"),
-            {"identifier": user.email, "password": VALID_PASSWORD, "email_code": "000000"},
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_full_login_flow_returns_jwt(self, api_client, user):
-        step1 = api_client.post(
-            reverse("v1:accounts:login-request-code"),
-            {"identifier": user.email, "password": VALID_PASSWORD},
-            format="json",
-        )
-        assert step1.status_code == 200
-
-        code = EmailConfirmation.objects.filter(
-            user=user, purpose=EmailConfirmation.Purpose.LOGIN
-        ).latest("created_at")
-
-        step2 = api_client.post(
-            reverse("v1:accounts:login"),
-            {"identifier": user.email, "password": VALID_PASSWORD, "email_code": code.code},
-            format="json",
-        )
-        assert step2.status_code == 200, step2.data
-        assert "access" in step2.data and "refresh" in step2.data
+        assert "access" in response.data and "refresh" in response.data
 
     def test_login_with_totp_enabled_requires_totp_code(self, api_client, user):
         import pyotp
@@ -191,35 +124,22 @@ class TestLoginFlow:
         user.totp_enabled = True
         user.save(update_fields=["totp_secret", "totp_enabled"])
 
-        api_client.post(
-            reverse("v1:accounts:login-request-code"),
-            {"identifier": user.email, "password": VALID_PASSWORD},
-            format="json",
-        )
-        code = EmailConfirmation.objects.filter(
-            user=user, purpose=EmailConfirmation.Purpose.LOGIN
-        ).latest("created_at")
-
         bad = api_client.post(
             reverse("v1:accounts:login"),
             {
-                "identifier": user.email,
+                "username": user.username,
                 "password": VALID_PASSWORD,
-                "email_code": code.code,
                 "totp_code": "123456",
             },
             format="json",
         )
         assert bad.status_code == 400
-        code.refresh_from_db()
-        assert code.is_used is False
 
         good = api_client.post(
             reverse("v1:accounts:login"),
             {
-                "identifier": user.email,
+                "username": user.username,
                 "password": VALID_PASSWORD,
-                "email_code": code.code,
                 "totp_code": pyotp.TOTP(secret).now(),
             },
             format="json",
@@ -228,8 +148,8 @@ class TestLoginFlow:
 
     def test_wrong_password_rejected(self, api_client, user):
         response = api_client.post(
-            reverse("v1:accounts:login-request-code"),
-            {"identifier": user.email, "password": "wrong-password"},
+            reverse("v1:accounts:login"),
+            {"username": user.username, "password": "wrong-password"},
             format="json",
         )
         assert response.status_code == 400

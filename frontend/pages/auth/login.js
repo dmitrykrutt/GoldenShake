@@ -8,34 +8,16 @@ import { useAuth } from '../../lib/auth';
 export default function LoginPage() {
   const router = useRouter();
   const { refresh } = useAuth();
-  const [step, setStep] = useState(1);
-  const [identifier, setIdentifier] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [emailCode, setEmailCode] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (router.query.identifier) setIdentifier(String(router.query.identifier));
+    if (router.query.username) setUsername(String(router.query.username));
     if (router.query.totp) setTotpCode(String(router.query.totp));
-  }, [router.query.identifier, router.query.totp]);
-
-  const requestCode = async (event) => {
-    event.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      await api.post('/accounts/login/request-code/', { identifier, password: password });
-      setNotice('A one-time code has been sent to your e-mail address.');
-      setStep(2);
-    } catch (err) {
-      setError(apiError(err, 'Invalid credentials.'));
-    } finally {
-      setBusy(false);
-    }
-  };
+  }, [router.query.username, router.query.totp]);
 
   const signIn = async (event) => {
     event.preventDefault();
@@ -43,9 +25,8 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const { data } = await api.post('/accounts/login/', {
-        identifier,
+        username,
         password: password,
-        email_code: emailCode,
         totp_code: totpCode || undefined,
       });
       tokens.set({ access: data.access, refresh: data.refresh });
@@ -70,87 +51,56 @@ export default function LoginPage() {
           <div className="card">
             <h1 className="text-2xl">Welcome back</h1>
             <p className="mt-2 text-sm text-neutral-400">
-              Three factors keep your account safe: your passphrase, an e-mail code and your
-              authenticator.
+              Sign in with your username and passphrase. If you enabled an authenticator app,
+              enter the 6-digit code too.
             </p>
 
-            {step === 1 ? (
-              <form onSubmit={requestCode} className="mt-6 space-y-4">
-                <div>
-                  <label className="label" htmlFor="identifier">
-                    E-mail or phone
-                  </label>
-                  <input
-                    id="identifier"
-                    required
-                    className="input"
-                    value={identifier}
-                    onChange={(event) => setIdentifier(event.target.value)}
-                    placeholder="you@protonmail.com"
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="pw">
-                    Passphrase
-                  </label>
-                  <input
-                    id="pw"
-                    type="password"
-                    required
-                    className="input"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                  />
-                </div>
-                <button type="submit" disabled={busy} className="btn-primary w-full">
-                  {busy ? 'Sending code…' : 'Continue'}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={signIn} className="mt-6 space-y-4">
-                <div>
-                  <label className="label" htmlFor="email-code">
-                    E-mail code
-                  </label>
-                  <input
-                    id="email-code"
-                    required
-                    maxLength={6}
-                    inputMode="numeric"
-                    className="input text-center font-mono text-xl tracking-[0.4em]"
-                    value={emailCode}
-                    onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ''))}
-                    placeholder="000000"
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="totp-code">
-                    Authenticator code
-                  </label>
-                  <input
-                    id="totp-code"
-                    maxLength={6}
-                    inputMode="numeric"
-                    className="input text-center font-mono text-xl tracking-[0.4em]"
-                    value={totpCode}
-                    onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ''))}
-                    placeholder="000000"
-                  />
-                </div>
-                <button type="submit" disabled={busy} className="btn-primary w-full">
-                  {busy ? 'Signing in…' : 'Sign in'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  className="w-full text-xs text-neutral-500 hover:text-gold"
-                >
-                  Back
-                </button>
-              </form>
-            )}
+            <form onSubmit={signIn} className="mt-6 space-y-4">
+              <div>
+                <label className="label" htmlFor="username">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  required
+                  className="input"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="nikolai"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="pw">
+                  Passphrase
+                </label>
+                <input
+                  id="pw"
+                  type="password"
+                  required
+                  className="input"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="totp-code">
+                  Authenticator code
+                </label>
+                <input
+                  id="totp-code"
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="input text-center font-mono text-xl tracking-[0.4em]"
+                  value={totpCode}
+                  onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                />
+              </div>
+              <button type="submit" disabled={busy} className="btn-primary w-full">
+                {busy ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
 
-            {notice && <p className="mt-4 text-xs text-gold">{notice}</p>}
             {error && <p className="mt-4 text-xs text-red-400">{error}</p>}
           </div>
 

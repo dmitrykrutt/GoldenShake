@@ -1,23 +1,12 @@
-"""Serializers for registration, login (e-mail OTP + TOTP) and profiles."""
-from django.contrib.auth import authenticate, get_user_model
+"""Serializers for registration, login and profiles."""
+from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.accounts.models import (
-    EmailConfirmation,
-    InviteLink,
-    TOTPDevice,
-    UserInvite,
-    VerificationRequest,
-)
+from apps.accounts.models import InviteLink, TOTPDevice, UserInvite, VerificationRequest
 from apps.accounts.totp import build_totp_setup_payload, generate_totp_secret, verify_totp
-from apps.accounts.validators import (
-    get_allowed_email_domains,
-    validate_email_domain,
-    validate_username,
-)
+from apps.accounts.validators import validate_username
 
 User = get_user_model()
 
@@ -136,9 +125,8 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    """Invite-only registration with provider whitelisting and TOTP bootstrap."""
+    """Invite-only registration with TOTP bootstrap."""
 
-    email = serializers.EmailField()
     username = serializers.CharField(max_length=32)
     password = serializers.CharField(write_only=True, min_length=10)
     password_confirm = serializers.CharField(write_only=True)
@@ -147,13 +135,6 @@ class RegisterSerializer(serializers.Serializer):
     is_18_confirmed = serializers.BooleanField()
     tos_confirmed = serializers.BooleanField()
     newsletter_opt_in = serializers.BooleanField(required=False, default=False)
-
-    def validate_email(self, value):
-        value = value.lower().strip()
-        validate_email_domain(value)
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("An account with this e-mail already exists.")
-        return value
 
     def validate_username(self, value):
         validate_username(value)
@@ -191,7 +172,6 @@ class RegisterSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        from apps.accounts.tasks import send_email_confirmation_task
         from apps.coins.services import reward_invite
 
         invite: InviteLink = self.context["invite"]
@@ -200,10 +180,10 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError({"invite_token": "This invite link is no longer usable."})
 
         user = User.objects.create_user(
-            email=validated_data["email"],
             username=validated_data["username"],
             password=validated_data["password"],
             phone=validated_data.get("phone", ""),
+            is_email_confirmed=True,
             is_18_confirmed=True,
             tos_confirmed=True,
             newsletter_opt_in=validated_data.get("newsletter_opt_in", False),
@@ -220,52 +200,15 @@ class RegisterSerializer(serializers.Serializer):
         )
         reward_invite(user_invite)
 
-        confirmation = EmailConfirmation.objects.create(
-            user=user, purpose=EmailConfirmation.Purpose.REGISTRATION
-        )
-        send_email_confirmation_task.delay(str(user.id), confirmation.code)
-
-        self.context["totp_setup"] = build_totp_setup_payload(user.email, secret)
+        self.context["totp_setup"] = build_totp_setup_payload(user.username, secret)
         return user
 
     def to_representation(self, instance):
         return {
             "user": UserSerializer(instance).data,
             "totp_setup": self.context.get("totp_setup", {}),
-            "message": "Account created. Confirm your e-mail code and activate your authenticator app.",
+            "message": "Account created. Activate your authenticator app and sign in.",
         }
-
-
-class EmailConfirmSerializer(serializers.Serializer):
-    """Confirm the 6-digit registration code."""
-
-    email = serializers.EmailField()
-    code = serializers.CharField(max_length=6)
-
-    def validate(self, attrs):
-        try:
-            user = User.objects.get(email__iexact=attrs["email"].strip())
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Invalid e-mail or code.")
-        confirmation = (
-            EmailConfirmation.objects.filter(
-                user=user, code=attrs["code"], is_used=False
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        if confirmation is None or not confirmation.is_valid():
-            raise serializers.ValidationError("Invalid or expired confirmation code.")
-        attrs["user"] = user
-        attrs["confirmation"] = confirmation
-        return attrs
-
-    def save(self, **kwargs):
-        user = self.validated_data["user"]
-        self.validated_data["confirmation"].consume()
-        user.is_email_confirmed = True
-        user.save(update_fields=["is_email_confirmed"])
-        return user
 
 
 class TOTPActivateSerializer(serializers.Serializer):
@@ -289,79 +232,30 @@ class TOTPActivateSerializer(serializers.Serializer):
         return user
 
 
-class LoginRequestCodeSerializer(serializers.Serializer):
-    """Step 1 of login: e-mail/phone + password → send the e-mail OTP."""
-
-    identifier = serializers.CharField(help_text="E-mail address or phone number.")
-    password = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        identifier = attrs["identifier"].strip()
-        user = User.objects.filter(
-            Q(email__iexact=identifier) | Q(phone=identifier)
-        ).first()
-        if user is None or not user.check_password(attrs["password"]):
-            raise serializers.ValidationError("Invalid credentials.")
-        if not user.is_active:
-            raise serializers.ValidationError("This account is disabled.")
-        attrs["user"] = user
-        return attrs
-
-    def save(self, **kwargs):
-        from apps.accounts.tasks import send_login_code_task
-
-        user = self.validated_data["user"]
-        confirmation = EmailConfirmation.objects.create(
-            user=user, purpose=EmailConfirmation.Purpose.LOGIN
-        )
-        send_login_code_task.delay(str(user.id), confirmation.code)
-        return user
-
-
 class LoginSerializer(serializers.Serializer):
-    """Step 2 of login: credentials + e-mail OTP + TOTP → JWT pair."""
+    """Username + password (+ optional TOTP) → JWT pair."""
 
-    identifier = serializers.CharField()
+    username = serializers.CharField()
     password = serializers.CharField(write_only=True)
-    email_code = serializers.CharField(max_length=6)
     totp_code = serializers.CharField(max_length=6, required=False, allow_blank=True)
 
     def validate(self, attrs):
-        identifier = attrs["identifier"].strip()
-        email_code = attrs["email_code"].strip()
+        username = attrs["username"].strip()
         totp_code = attrs.get("totp_code", "").strip()
-        user = User.objects.filter(
-            Q(email__iexact=identifier) | Q(phone=identifier)
-        ).first()
+        user = User.objects.filter(username__iexact=username).first()
         if user is None or not user.check_password(attrs["password"]):
             raise serializers.ValidationError("Invalid credentials.")
         if not user.is_active:
             raise serializers.ValidationError("This account is disabled.")
-        if not user.is_email_confirmed:
-            raise serializers.ValidationError("Confirm your e-mail address first.")
-
-        confirmation = (
-            EmailConfirmation.objects.filter(
-                user=user,
-                code=email_code,
-                is_used=False,
-                purpose=EmailConfirmation.Purpose.LOGIN,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        if confirmation is None or not confirmation.is_valid():
-            raise serializers.ValidationError({"email_code": "Invalid or expired e-mail code."})
 
         if user.totp_enabled and not totp_code:
             raise serializers.ValidationError({"totp_code": "Authenticator code is required."})
         if user.totp_enabled and not verify_totp(user.totp_secret, totp_code):
             raise serializers.ValidationError({"totp_code": "Invalid authenticator code."})
 
-        attrs["email_code"] = email_code
+        attrs["username"] = username
         attrs["totp_code"] = totp_code
         attrs["user"] = user
-        attrs["confirmation"] = confirmation
         return attrs
 
     @transaction.atomic
@@ -369,8 +263,6 @@ class LoginSerializer(serializers.Serializer):
         from rest_framework_simplejwt.tokens import RefreshToken
 
         user = self.validated_data["user"]
-        confirmation = self.validated_data["confirmation"]
-        confirmation.consume()
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
         refresh = RefreshToken.for_user(user)
@@ -422,16 +314,6 @@ class VerificationRequestSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "user", "status", "reviewer_note", "created_at", "updated_at")
-
-
-class AllowedDomainsSerializer(serializers.Serializer):
-    """Advertises the whitelisted e-mail providers to the frontend."""
-
-    domains = serializers.ListField(child=serializers.CharField())
-
-    @staticmethod
-    def current() -> dict:
-        return {"domains": get_allowed_email_domains()}
 
 
 class GDPRRequestSerializer(serializers.Serializer):
