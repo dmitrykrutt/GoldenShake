@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   BoltIcon,
@@ -10,6 +12,7 @@ import {
   VideoCameraIcon,
 } from '@heroicons/react/24/outline';
 import Layout, { Logo } from '../components/Layout';
+import { useAuth } from '../lib/auth';
 
 const FEATURES = [
   {
@@ -53,6 +56,17 @@ const LEVELS = [
 ];
 
 export default function Home() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/chats');
+    }
+  }, [user, loading, router]);
+
+  if (loading || user) return null;
+
   return (
     <Layout title="GoldenShake — premium secure messenger" sidebar={false} fullBleed>
       <div className="relative overflow-hidden">

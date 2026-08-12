@@ -166,7 +166,7 @@ def level_progress(user) -> dict:
 
 
 def reward_invite(user_invite) -> InviteReward:
-    """Grant the inviter green handshakes for a successful invite (idempotent)."""
+    """Grant both the inviter and the invitee green handshakes (idempotent)."""
     reward = InviteReward.objects.filter(user_invite=user_invite).first()
     if reward is not None:
         return reward
@@ -177,6 +177,15 @@ def reward_invite(user_invite) -> InviteReward:
         CoinTransaction.Type.INVITE_REWARD,
         memo=f"Invited @{user_invite.invitee.username}",
         metadata={"invitee_id": str(user_invite.invitee_id)},
+    )
+    # Also reward the invitee with the same amount of green handshakes.
+    credit(
+        user_invite.invitee,
+        RARITY_GREEN,
+        INVITE_REWARD_AMOUNT,
+        CoinTransaction.Type.INVITE_REWARD,
+        memo=f"Joined via invite from @{user_invite.inviter.username}",
+        metadata={"inviter_id": str(user_invite.inviter_id)},
     )
     reward = InviteReward.objects.create(
         user_invite=user_invite, amount=INVITE_REWARD_AMOUNT, rarity=RARITY_GREEN, transaction=tx
