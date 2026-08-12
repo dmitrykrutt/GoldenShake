@@ -58,6 +58,7 @@ class TestRegistration:
         assert TOTPDevice.objects.filter(user=user, confirmed=False).exists()
         assert not EmailConfirmation.objects.filter(user=user, is_used=False).exists()
         assert user.totp_secret
+        assert user.totp_enabled is True
 
 
 class TestInviteSystem:
@@ -107,6 +108,43 @@ class TestInviteSystem:
 
 
 class TestLoginFlow:
+    def test_login_after_registration_requires_valid_totp_code(self, api_client, invite_link):
+        import pyotp
+        from django.contrib.auth import get_user_model
+
+        response = api_client.post(
+            reverse("v1:accounts:register"), register_payload(invite_link.hash_token), format="json"
+        )
+        assert response.status_code == 201, response.data
+        user = get_user_model().objects.get(username="new_member")
+
+        missing = api_client.post(
+            reverse("v1:accounts:login"),
+            {"username": user.username, "password": VALID_PASSWORD},
+            format="json",
+        )
+        assert missing.status_code == 400
+        assert "totp_code" in missing.data
+
+        wrong = api_client.post(
+            reverse("v1:accounts:login"),
+            {"username": user.username, "password": VALID_PASSWORD, "totp_code": "123456"},
+            format="json",
+        )
+        assert wrong.status_code == 400
+        assert "totp_code" in wrong.data
+
+        good = api_client.post(
+            reverse("v1:accounts:login"),
+            {
+                "username": user.username,
+                "password": VALID_PASSWORD,
+                "totp_code": pyotp.TOTP(user.totp_secret).now(),
+            },
+            format="json",
+        )
+        assert good.status_code == 200, good.data
+
     def test_login_returns_jwt_with_username_password(self, api_client, user):
         response = api_client.post(
             reverse("v1:accounts:login"),

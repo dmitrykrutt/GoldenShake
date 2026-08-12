@@ -48,7 +48,7 @@ export default function ChatsPage() {
         await api.get(`/accounts/profiles/${encodeURIComponent(username)}/`);
       } catch (lookupErr) {
         if (lookupErr?.response?.status === 404) {
-          setCreateError('Пользователь не найден.');
+          setCreateError('Пользователь не найден');
           return;
         }
       }
