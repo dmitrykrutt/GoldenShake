@@ -1,8 +1,10 @@
 """Tests for chat rooms, encrypted messages, locked files and WebSocket flow."""
 import pytest
 from channels.testing import WebsocketCommunicator
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
+from apps.accounts.models import BlockedUser
 from apps.chat.encryption import decrypt_message, encrypt_message
 from apps.chat.models import ChatRoom, LockedFile, Message, PinnedChat, RoomMembership
 from apps.coins.models import RARITY_GREEN, CoinTransaction
@@ -108,6 +110,37 @@ class TestChatApi:
             reverse("v1:chat:message-detail", kwargs={"pk": message.id}) + "?for_all=true"
         )
         assert response.status_code == 403
+
+    def test_delete_room_hides_it_for_requesting_user(self, auth_client, room):
+        response = auth_client.delete(reverse("v1:chat:room-detail", kwargs={"pk": room.id}))
+        assert response.status_code == 204
+        listing = auth_client.get(reverse("v1:chat:room-list"))
+        assert listing.status_code == 200
+        assert listing.data["count"] == 0
+
+    def test_blocked_user_cannot_create_direct_room(self, auth_client, other_user):
+        BlockedUser.objects.create(blocker=auth_client.user, blocked=other_user)
+        response = auth_client.post(
+            reverse("v1:chat:room-list"),
+            {"participant_usernames": [other_user.username]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_media_endpoint_supports_range_requests(self, auth_client, room):
+        message = Message.objects.create(
+            room=room,
+            sender=auth_client.user,
+            message_type=Message.Type.VIDEO,
+            media=SimpleUploadedFile("clip.mp4", b"0123456789", content_type="video/mp4"),
+        )
+        response = auth_client.get(
+            reverse("v1:chat:media", kwargs={"file_path": message.media.name}),
+            HTTP_RANGE="bytes=0-3",
+        )
+        assert response.status_code == 206
+        assert response.content == b"0123"
+        assert response["Accept-Ranges"] == "bytes"
 
 
 class TestLockedFiles:

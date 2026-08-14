@@ -52,12 +52,9 @@ def _send_system_message(deal: GarantDeal, text: str):
     from apps.chat.models import Message
     from apps.chat.serializers import MessageSerializer
 
-    message = Message.objects.create(
-        room=deal.room,
-        sender=deal.creator,
-        content=text,
-        message_type=Message.Type.SYSTEM,
-    )
+    message = Message(room=deal.room, sender=deal.creator, message_type=Message.Type.SYSTEM)
+    message.set_plaintext(text)
+    message.save()
     try:
         channel_layer = get_channel_layer()
         if channel_layer is not None:

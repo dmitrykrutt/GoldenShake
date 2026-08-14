@@ -6,8 +6,8 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import MediaPlayer from './MediaPlayer';
-import VerificationBadge from './VerificationBadge';
 import { RARITY_META, formatDate } from '../lib/constants';
+import Username from './Username';
 
 function LockedFileCard({ locked, onUnlock, busy }) {
   const rarity = RARITY_META[locked.price_rarity] || RARITY_META.green;
@@ -40,6 +40,7 @@ export default function MessageBubble({
   onReply,
   onPin,
   onUnlock,
+  onOpenProfile,
 }) {
   const [busy, setBusy] = useState(false);
   const locked = message.locked_file;
@@ -64,28 +65,43 @@ export default function MessageBubble({
     );
   }
 
+  if (message.message_type === 'system') {
+    return (
+      <div className="flex justify-center">
+        <div className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-xs text-neutral-400">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`group flex gap-2 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
       {!isOwn &&
         (message.sender?.avatar ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={message.sender.avatar}
-            alt={message.sender.username}
-            className="mt-auto h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-gold/30"
-          />
+          <button type="button" onClick={() => onOpenProfile?.(message.sender?.username)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={message.sender.avatar}
+              alt={message.sender.username}
+              className="mt-auto h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-gold/30"
+            />
+          </button>
         ) : (
-          <div className="mt-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-graphite text-xs font-bold text-gold">
+          <button
+            type="button"
+            onClick={() => onOpenProfile?.(message.sender?.username)}
+            className="mt-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-graphite text-xs font-bold text-gold"
+          >
             {(message.sender?.username || '?').slice(0, 2).toUpperCase()}
-          </div>
+          </button>
         ))}
 
       <div className={`flex max-w-[78%] flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
         {!isOwn && (
-          <span className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-gold/80">
-            {message.sender?.username}
-            <VerificationBadge verified={message.sender?.is_verified} size={12} />
-          </span>
+          <button type="button" onClick={() => onOpenProfile?.(message.sender?.username)} className="mb-0.5 px-1 text-[11px] font-medium text-gold/80">
+            <Username user={message.sender} />
+          </button>
         )}
 
         <div

@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from apps.accounts.models import (
+    BlockedUser,
     EmailConfirmation,
     InviteLink,
     TOTPDevice,
@@ -81,3 +82,9 @@ class VerificationRequestAdmin(admin.ModelAdmin):
     list_display = ("user", "status", "created_at", "updated_at")
     list_filter = ("status",)
     search_fields = ("user__username",)
+
+
+@admin.register(BlockedUser)
+class BlockedUserAdmin(admin.ModelAdmin):
+    list_display = ("blocker", "blocked", "created_at")
+    search_fields = ("blocker__username", "blocked__username")

@@ -14,6 +14,8 @@ export default function ChatsPage() {
   const [newUsername, setNewUsername] = useState('');
   const [error, setError] = useState('');
   const [createError, setCreateError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [blockOnDelete, setBlockOnDelete] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +66,21 @@ export default function ChatsPage() {
     }
   };
 
+  const handleDeleteChat = async () => {
+    if (!deleteTarget) return;
+    try {
+      await api.delete(`/chat/rooms/${deleteTarget.id}/`);
+      if (blockOnDelete && deleteTarget.peer?.username) {
+        await api.post(`/accounts/profiles/block/${encodeURIComponent(deleteTarget.peer.username)}/`);
+      }
+      setRooms((prev) => prev.filter((room) => room.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      setBlockOnDelete(false);
+    } catch (err) {
+      setError(apiError(err, 'Не удалось удалить чат.'));
+    }
+  };
+
   return (
     <Layout title="Chats">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -91,7 +108,17 @@ export default function ChatsPage() {
       {error && <p className="mb-4 text-xs text-red-400">{error}</p>}
 
       <div className="card overflow-hidden p-0">
-        <ChatList rooms={filtered} loading={authLoading || loading} />
+        <ChatList
+          rooms={filtered}
+          loading={authLoading || loading}
+          currentUserId={user?.id}
+          onDelete={(room) =>
+            setDeleteTarget({
+              ...room,
+              peer: room.memberships?.find((member) => String(member.user?.id) !== String(user?.id))?.user,
+            })
+          }
+        />
       </div>
 
       {creating && (
@@ -125,6 +152,35 @@ export default function ChatsPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl glass-gold p-6">
+            <h2 className="font-display text-xl">Удалить чат?</h2>
+            <p className="mt-3 text-sm text-neutral-300">
+              Вы действительно хотите удалить чат с @{deleteTarget.peer?.username || deleteTarget.display_title}?
+            </p>
+            <p className="mt-1 text-sm text-neutral-500">Это действие нельзя отменить.</p>
+            <label className="mt-5 flex items-center gap-3 text-sm text-neutral-300">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[#C9A84C]"
+                checked={blockOnDelete}
+                onChange={(event) => setBlockOnDelete(event.target.checked)}
+              />
+              Заблокировать пользователя
+            </label>
+            <div className="mt-6 flex gap-3">
+              <button type="button" className="btn-dark flex-1" onClick={() => { setDeleteTarget(null); setBlockOnDelete(false); }}>
+                Отмена
+              </button>
+              <button type="button" className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-semibold text-white" onClick={handleDeleteChat}>
+                Удалить
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </Layout>

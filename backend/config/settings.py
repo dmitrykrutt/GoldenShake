@@ -20,7 +20,6 @@ FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
 # Applications
 # --------------------------------------------------------------------------
 DJANGO_APPS = [
-    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -28,6 +27,9 @@ DJANGO_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 ]
+
+if config("ENABLE_DAPHNE", default=True, cast=bool):
+    DJANGO_APPS.insert(0, "daphne")
 
 THIRD_PARTY_APPS = [
     "channels",
@@ -277,7 +279,10 @@ TELEGRAM_SMS_CHAT_ID = config("TELEGRAM_SMS_CHAT_ID", default="")
 FCM_CREDENTIALS_FILE = config("FCM_CREDENTIALS_FILE", default="")
 FCM_PROJECT_ID = config("FCM_PROJECT_ID", default="")
 
-CRYPTOPAY_API_TOKEN = config("CRYPTOPAY_API_TOKEN", default="")
+CRYPTOPAY_TOKEN = config(
+    "CRYPTOPAY_TOKEN", default=config("CRYPTOPAY_API_TOKEN", default="")
+)
+CRYPTOPAY_API_TOKEN = CRYPTOPAY_TOKEN
 CRYPTOPAY_API_URL = config("CRYPTOPAY_API_URL", default="https://pay.crypt.bot/api")
 CRYPTOPAY_WEBHOOK_SECRET = config("CRYPTOPAY_WEBHOOK_SECRET", default="")
 

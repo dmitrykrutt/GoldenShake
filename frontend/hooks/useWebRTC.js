@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../lib/api';
 import { connect } from '../lib/ws';
+import { playCallEnd, playRingback, playRingtone, stopAllSounds } from '../lib/sounds';
 
 /**
  * Manages WebRTC audio/video calls via the backend signaling WS.
@@ -8,7 +9,16 @@ import { connect } from '../lib/ws';
  * @param {string|number} chatId  – chat room id used for the WS path
  * @param {string}        userId  – current authenticated user id (string)
  */
-export function useWebRTC(chatId, userId) {
+const AUDIO_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  sampleRate: 48000,
+  channelCount: 1,
+  latency: 0.01,
+};
+
+export function useWebRTC(chatId, userId, options = {}) {
   const [callStatus, setCallStatus] = useState('idle'); // idle | calling | incoming | connecting | active | ended
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -29,8 +39,10 @@ export function useWebRTC(chatId, userId) {
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const pendingCandidatesRef = useRef([]);
   const loggedRef = useRef(false);
+  const fallbackCallbackRef = useRef(options.onSystemMessage);
 
   callInfoRef.current = callInfo;
+  fallbackCallbackRef.current = options.onSystemMessage;
 
   // Fetch ICE servers once
   useEffect(() => {
@@ -100,6 +112,7 @@ export function useWebRTC(chatId, userId) {
 
   const teardown = useCallback(
     (reason) => {
+      stopAllSounds();
       stopDurationTimer();
       stopTimeoutTimer();
       stopTracks(localStreamRef.current);
@@ -118,8 +131,15 @@ export function useWebRTC(chatId, userId) {
     [cleanupPc, stopDurationTimer, stopTimeoutTimer, stopTracks],
   );
 
+  const emitSystemMessage = useCallback((text) => {
+    fallbackCallbackRef.current?.(text);
+  }, []);
+
   const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+    const pc = new RTCPeerConnection({
+      iceServers: iceServersRef.current,
+      sdpSemantics: 'unified-plan',
+    });
     pc.onicecandidate = (event) => {
       if (event.candidate && wsRef.current) {
         wsRef.current.send({
@@ -128,15 +148,14 @@ export function useWebRTC(chatId, userId) {
         });
       }
     };
-    const rs = new MediaStream();
-    setRemoteStream(rs);
     pc.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => rs.addTrack(track));
+      setRemoteStream(event.streams?.[0] || new MediaStream([event.track]));
     };
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         if (!connectedAtRef.current) {
           connectedAtRef.current = Date.now();
+          stopAllSounds();
           stopTimeoutTimer();
           stopDurationTimer();
           durationTimerRef.current = setInterval(() => {
@@ -164,9 +183,10 @@ export function useWebRTC(chatId, userId) {
 
   const getMedia = useCallback(async (withVideo) => {
     try {
+      setPermissionError('');
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: withVideo,
+        audio: AUDIO_CONSTRAINTS,
+        video: withVideo ? { facingMode: 'user' } : false,
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -174,7 +194,7 @@ export function useWebRTC(chatId, userId) {
     } catch (err) {
       const msg =
         err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
-          ? 'Доступ к микрофону/камере запрещён. Разрешите доступ в настройках браузера.'
+          ? 'Для звонков необходим доступ к микрофону. Разрешите доступ в настройках браузера и попробуйте снова.'
           : 'Не удалось получить доступ к микрофону/камере.';
       setPermissionError(msg);
       throw err;
@@ -190,6 +210,8 @@ export function useWebRTC(chatId, userId) {
   // ----------- Signaling handlers -------------------------------------------
   const handleIncoming = useCallback((msg) => {
     if (msg.caller_id === String(userId)) return; // own broadcast
+    stopAllSounds();
+    playRingtone();
     setCallInfo({
       callId: msg.call_id,
       callerName: msg.caller,
@@ -201,6 +223,7 @@ export function useWebRTC(chatId, userId) {
       wsRef.current?.send({ action: 'call_decline', call_id: msg.call_id });
       setCallStatus('idle');
       setCallInfo(null);
+      stopAllSounds();
     }, 30000);
   }, [userId]);
 
@@ -209,10 +232,11 @@ export function useWebRTC(chatId, userId) {
       // only the caller handles this (callee gets their own accepted echo but we proceed)
       if (msg.user_id === String(userId)) return; // callee sent it; caller continues
       stopTimeoutTimer();
+      stopAllSounds();
       setCallStatus('connecting');
       const withVideo = callTypeRef.current === 'video';
       try {
-        const stream = await getMedia(withVideo);
+        const stream = localStreamRef.current || (await getMedia(withVideo));
         const pc = createPeerConnection();
         addTracks(pc, stream);
         const offer = await pc.createOffer();
@@ -235,7 +259,7 @@ export function useWebRTC(chatId, userId) {
       setCallStatus('connecting');
       const withVideo = callInfoRef.current?.callType === 'video';
       try {
-        const stream = await getMedia(withVideo);
+        const stream = localStreamRef.current || (await getMedia(withVideo));
         const pc = createPeerConnection();
         addTracks(pc, stream);
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -283,9 +307,23 @@ export function useWebRTC(chatId, userId) {
     (msg) => {
       const info = callInfoRef.current;
       logCall(info?.callId, info?.callType);
+      stopAllSounds();
+      if (msg.reason === 'declined') {
+        emitSystemMessage('📵 Звонок отклонён');
+      } else if (msg.reason === 'no_answer') {
+        emitSystemMessage('📵 Пропущенный звонок');
+      } else if (connectedAtRef.current) {
+        const totalSeconds = Math.round((Date.now() - connectedAtRef.current) / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        emitSystemMessage(
+          `📞 Звонок завершён · ${minutes ? `${minutes} мин ` : ''}${seconds} сек`
+        );
+      }
+      playCallEnd();
       teardown(msg.reason === 'declined' ? 'declined' : '');
     },
-    [logCall, teardown],
+    [emitSystemMessage, logCall, teardown],
   );
 
   // ----------- WS setup -----------------------------------------------------
@@ -321,6 +359,7 @@ export function useWebRTC(chatId, userId) {
     wsRef.current = ws;
 
     return () => {
+      stopAllSounds();
       ws.close();
       wsRef.current = null;
     };
@@ -331,6 +370,15 @@ export function useWebRTC(chatId, userId) {
     async ({ video = false } = {}) => {
       if (callStatus !== 'idle') return;
       callTypeRef.current = video ? 'video' : 'audio';
+      try {
+        await getMedia(video);
+      } catch {
+        setCallStatus('idle');
+        return;
+      }
+
+      stopAllSounds();
+      playRingback();
       setCallStatus('calling');
       setCallInfo({ callType: video ? 'video' : 'audio' });
 
@@ -342,36 +390,54 @@ export function useWebRTC(chatId, userId) {
       // timeout if no one answers in 30 s
       timeoutTimerRef.current = setTimeout(() => {
         wsRef.current?.send({ action: 'call_end', reason: 'no_answer' });
-        setCallStatus('ended');
+        emitSystemMessage('📵 Пропущенный звонок');
+        stopAllSounds();
+        playCallEnd();
+        teardown('');
         setCallInfo(null);
-        setTimeout(() => setCallStatus('idle'), 2000);
       }, 30000);
     },
-    [callStatus],
+    [callStatus, emitSystemMessage, getMedia, teardown],
   );
 
   const acceptCall = useCallback(async () => {
     stopTimeoutTimer();
     const info = callInfoRef.current;
     if (!info) return;
+    try {
+      await getMedia(info.callType === 'video');
+    } catch {
+      return;
+    }
+    stopAllSounds();
     wsRef.current?.send({ action: 'call_accept', call_id: info.callId });
     setCallStatus('connecting');
-  }, [stopTimeoutTimer]);
+  }, [getMedia, stopTimeoutTimer]);
 
   const declineCall = useCallback(() => {
     stopTimeoutTimer();
     const info = callInfoRef.current;
+    stopAllSounds();
+    playCallEnd();
+    emitSystemMessage('📵 Звонок отклонён');
     wsRef.current?.send({ action: 'call_decline', call_id: info?.callId });
     setCallStatus('idle');
     setCallInfo(null);
-  }, [stopTimeoutTimer]);
+  }, [emitSystemMessage, stopTimeoutTimer]);
 
   const endCall = useCallback(() => {
     const info = callInfoRef.current;
     wsRef.current?.send({ action: 'call_end', call_id: info?.callId });
     logCall(info?.callId, info?.callType);
+    if (connectedAtRef.current) {
+      const totalSeconds = Math.round((Date.now() - connectedAtRef.current) / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      emitSystemMessage(`📞 Звонок завершён · ${minutes ? `${minutes} мин ` : ''}${seconds} сек`);
+    }
+    playCallEnd();
     teardown('');
-  }, [logCall, teardown]);
+  }, [emitSystemMessage, logCall, teardown]);
 
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;

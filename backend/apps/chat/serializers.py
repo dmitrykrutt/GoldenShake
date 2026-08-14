@@ -1,8 +1,12 @@
 """Serializers for chat rooms, messages and locked files."""
+import mimetypes
+
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import models, transaction
+from django.urls import reverse
 from rest_framework import serializers
 
+from apps.accounts.models import BlockedUser
 from apps.accounts.serializers import PublicUserSerializer
 from apps.chat.models import (
     ChatRoom,
@@ -33,6 +37,7 @@ class MessageSerializer(serializers.ModelSerializer):
     sender = PublicUserSerializer(read_only=True)
     content = serializers.SerializerMethodField()
     locked_file = LockedFileSerializer(read_only=True)
+    media = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
@@ -61,6 +66,16 @@ class MessageSerializer(serializers.ModelSerializer):
         if locked and request and not locked.is_unlocked_for(request.user):
             return ""
         return obj.plaintext
+
+    def get_media(self, obj) -> str | None:
+        request = self.context.get("request")
+        if not obj.media:
+            return None
+        if not request:
+            return obj.media.url
+        return request.build_absolute_uri(
+            reverse("v1:chat:media", kwargs={"file_path": obj.media.name})
+        )
 
 
 class MessageCreateSerializer(serializers.ModelSerializer):
@@ -94,6 +109,14 @@ class MessageCreateSerializer(serializers.ModelSerializer):
         body = validated_data.pop("content", "")
         message = Message(sender=self.context["request"].user, **validated_data)
         message.set_plaintext(body)
+        if message.media:
+            guessed_type, _ = mimetypes.guess_type(message.media.name)
+            message.media_meta = {
+                **(message.media_meta or {}),
+                "name": message.media_meta.get("name") or message.media.name.rsplit("/", 1)[-1],
+                "size": message.media_meta.get("size") or getattr(message.media, "size", None),
+                "content_type": message.media_meta.get("content_type") or guessed_type or "",
+            }
         if price_amount:
             message.message_type = Message.Type.LOCKED_FILE
         message.save()
@@ -175,9 +198,16 @@ class ChatRoomCreateSerializer(serializers.Serializer):
     is_group = serializers.BooleanField(default=False)
 
     def validate_participant_usernames(self, value):
+        request = self.context["request"]
         users = list(User.objects.filter(username__in=value))
         if len(users) != len(set(value)):
             raise serializers.ValidationError("One or more usernames do not exist.")
+        blocked = BlockedUser.objects.filter(
+            models.Q(blocker=request.user, blocked__in=users)
+            | models.Q(blocker__in=users, blocked=request.user)
+        ).exists()
+        if blocked:
+            raise serializers.ValidationError("Этот пользователь недоступен для чата.")
         self.context["participants"] = users
         return value
 

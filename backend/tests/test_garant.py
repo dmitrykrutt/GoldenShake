@@ -1,8 +1,12 @@
 """Tests for the escrow (garant) deal lifecycle."""
+import hashlib
+import hmac
+import json
 from decimal import Decimal
 from unittest import mock
 
 import pytest
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.garant.models import GarantDeal, GarantDispute, GarantPayment
@@ -48,7 +52,7 @@ class TestDealCreation:
     def test_deals_are_private_to_participants(self, auth_client, buyer_client):
         create_deal(auth_client)
         listing = buyer_client.get(reverse("v1:garant:garant-deal-list"))
-        assert listing.data["count"] == 0
+        assert listing.data == [] or listing.data["count"] == 0
 
 
 class TestDealAgreement:
@@ -176,6 +180,35 @@ class TestPaymentAndCompletion:
         assert result["ok"] is True
         assert deal.status == GarantDeal.Status.RELEASED
         assert Decimal(result["payout"]) == Decimal("95.00")
+
+    @override_settings(CRYPTOPAY_TOKEN="secret-token", CRYPTOPAY_WEBHOOK_SECRET="")
+    def test_cryptopay_webhook_marks_payment_paid(self, auth_client, buyer_client):
+        token = create_deal(auth_client).data["private_link_token"]
+        deal_id = buyer_client.post(
+            reverse("v1:garant:garant-deal-agree", kwargs={"token": token})
+        ).data["id"]
+        payment = GarantPayment.objects.create(
+            deal_id=deal_id,
+            amount="100.00",
+            currency="USDT",
+            cryptopay_invoice_id="12345",
+        )
+        payload = {"update_type": "invoice_paid", "payload": {"invoice_id": "12345", "status": "paid"}}
+        secret = hashlib.sha256(b"secret-token").digest()
+        signature = hmac.new(
+            secret, json.dumps(payload, separators=(",", ":")).encode(), hashlib.sha256
+        ).hexdigest()
+        response = auth_client.post(
+            reverse("v1:garant:cryptopay-webhook"),
+            payload,
+            format="json",
+            HTTP_CRYPTO_PAY_API_SIGNATURE=signature,
+        )
+        assert response.status_code == 200
+        payment.refresh_from_db()
+        payment.deal.refresh_from_db()
+        assert payment.status == GarantPayment.Status.PAID
+        assert payment.deal.status == GarantDeal.Status.PAID
 
 
 class TestDisputes:

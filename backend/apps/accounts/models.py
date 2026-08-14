@@ -85,6 +85,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     theme_color = models.CharField(
         max_length=16, choices=Theme.choices, default=Theme.MIDNIGHT
     )
+    show_verified_badge = models.BooleanField(default=False)
+    displayed_handshake_level = models.CharField(max_length=20, blank=True, default="")
+    username_gradient = models.CharField(max_length=30, blank=True, default="")
 
     private_profile = models.BooleanField(default=False)
     paid_messages_enabled = models.BooleanField(default=False)
@@ -285,3 +288,25 @@ class VerificationRequest(models.Model):
 
     def __str__(self) -> str:
         return f"verification({self.user_id}) = {self.status}"
+
+
+class BlockedUser(models.Model):
+    blocker = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="blocked_users",
+        on_delete=models.CASCADE,
+    )
+    blocked = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="blocked_by",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "accounts_blocked_user"
+        unique_together = ("blocker", "blocked")
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.blocker_id} blocked {self.blocked_id}"

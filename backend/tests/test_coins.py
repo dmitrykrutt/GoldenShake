@@ -1,5 +1,10 @@
 """Tests for coin balances, exchanges, donations and level calculation."""
+import hashlib
+import hmac
+import json
+
 import pytest
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.coins.models import (
@@ -183,3 +188,28 @@ class TestCoinApi:
         response = auth_client.get(reverse("v1:coins:levels"))
         assert response.status_code == 200
         assert response.data["exchange_rates"]["blue"]["amount"] == 50
+
+    @override_settings(CRYPTOPAY_TOKEN="deposit-secret", CRYPTOPAY_WEBHOOK_SECRET="")
+    def test_cryptopay_deposit_webhook_credits_balance(self, auth_client):
+        from apps.coins.models import DepositInvoice, FiatBalance
+
+        DepositInvoice.objects.create(
+            user=auth_client.user,
+            cryptopay_invoice_id="dep-1",
+            amount="12.00",
+            currency="USDT",
+        )
+        payload = {"update_type": "invoice_paid", "payload": {"invoice_id": "dep-1", "status": "paid"}}
+        secret = hashlib.sha256(b"deposit-secret").digest()
+        signature = hmac.new(
+            secret, json.dumps(payload, separators=(",", ":")).encode(), hashlib.sha256
+        ).hexdigest()
+        response = auth_client.post(
+            reverse("v1:coins:cryptopay-webhook"),
+            payload,
+            format="json",
+            HTTP_CRYPTO_PAY_API_SIGNATURE=signature,
+        )
+        balance = FiatBalance.objects.get(user=auth_client.user, currency="USDT")
+        assert response.status_code == 200
+        assert str(balance.amount) == "12.00"

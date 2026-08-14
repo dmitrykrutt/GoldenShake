@@ -1,12 +1,14 @@
 """WebRTC signaling over Django Channels."""
 import json
 import logging
+from datetime import timedelta
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from apps.calls.models import CallLog
-from apps.chat.models import RoomMembership
+from apps.chat.models import Message, RoomMembership
+from apps.chat.serializers import MessageSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,12 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
         call_id = content.get("call_id") or self.call_id
         if call_id:
             await self.end_call(call_id, CallLog.Status.DECLINED)
+            payload = await self.build_system_message(call_id, "📵 Звонок отклонён")
+            if payload:
+                await self.channel_layer.group_send(
+                    f"chat.{self.room_id}",
+                    {"type": "chat.message", "message": payload},
+                )
         await self.channel_layer.group_send(
             self.group_name,
             {"type": "call.ended", "call_id": call_id, "reason": "declined"},
@@ -136,11 +144,23 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
 
     async def handle_call_end(self, content):
         call_id = content.get("call_id") or self.call_id
+        reason = content.get("reason", "hangup")
         if call_id:
-            await self.end_call(call_id, CallLog.Status.ENDED)
+            status = CallLog.Status.MISSED if reason == "no_answer" else CallLog.Status.ENDED
+            call = await self.end_call(call_id, status)
+            if reason == "no_answer":
+                payload = await self.build_system_message(call_id, "📵 Пропущенный звонок")
+            else:
+                duration = self.format_duration(call.duration_seconds if call else 0)
+                payload = await self.build_system_message(call_id, f"📞 Звонок завершён · {duration}")
+            if payload:
+                await self.channel_layer.group_send(
+                    f"chat.{self.room_id}",
+                    {"type": "chat.message", "message": payload},
+                )
         await self.channel_layer.group_send(
             self.group_name,
-            {"type": "call.ended", "call_id": call_id, "reason": content.get("reason", "hangup")},
+            {"type": "call.ended", "call_id": call_id, "reason": reason},
         )
         self.call_id = None
 
@@ -200,6 +220,7 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
         call = CallLog.objects.filter(id=call_id).exclude(status=CallLog.Status.ENDED).first()
         if call is not None:
             call.mark_ended(status)
+        return call
 
     @database_sync_to_async
     def ice_servers(self):
@@ -207,6 +228,24 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
 
         servers = [server.as_dict() for server in IceServer.objects.filter(is_active=True)]
         return servers or [{"urls": "stun:stun.l.google.com:19302"}]
+
+    @database_sync_to_async
+    def build_system_message(self, call_id: str, text: str):
+        call = CallLog.objects.select_related("room", "caller").filter(id=call_id).first()
+        if call is None:
+            return None
+        message = Message(room=call.room, sender=call.caller, message_type=Message.Type.SYSTEM)
+        message.set_plaintext(text)
+        message.save()
+        return MessageSerializer(message).data
+
+    @staticmethod
+    def format_duration(total_seconds: int) -> str:
+        duration = timedelta(seconds=max(total_seconds, 0))
+        minutes, seconds = divmod(int(duration.total_seconds()), 60)
+        if minutes:
+            return f"{minutes} мин {seconds} сек"
+        return f"{seconds} сек"
 
     async def encode_json(self, content):  # pragma: no cover - trivial
         return json.dumps(content, default=str)

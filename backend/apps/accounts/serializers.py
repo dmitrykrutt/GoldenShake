@@ -4,7 +4,13 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.accounts.models import InviteLink, TOTPDevice, UserInvite, VerificationRequest
+from apps.accounts.models import (
+    BlockedUser,
+    InviteLink,
+    TOTPDevice,
+    UserInvite,
+    VerificationRequest,
+)
 from apps.accounts.totp import build_totp_setup_payload, generate_totp_secret, verify_totp
 from apps.accounts.validators import validate_username
 
@@ -26,6 +32,9 @@ class PublicUserSerializer(serializers.ModelSerializer):
             "social_links",
             "theme_color",
             "is_verified",
+            "show_verified_badge",
+            "displayed_handshake_level",
+            "username_gradient",
             "private_profile",
             "paid_messages_enabled",
             "paid_message_price",
@@ -55,6 +64,9 @@ class UserSerializer(serializers.ModelSerializer):
             "social_links",
             "theme_color",
             "is_verified",
+            "show_verified_badge",
+            "displayed_handshake_level",
+            "username_gradient",
             "is_email_confirmed",
             "is_staff",
             "totp_enabled",
@@ -105,6 +117,9 @@ class ProfileSerializer(serializers.ModelSerializer):
             "telegram_chat_id",
             "fcm_token",
             "public_key",
+            "show_verified_badge",
+            "displayed_handshake_level",
+            "username_gradient",
         )
 
     def validate_username(self, value):
@@ -334,3 +349,12 @@ class GDPRRequestSerializer(serializers.Serializer):
         user.save(update_fields=["gdpr_data_requested", "gdpr_data_requested_at"])
         export_user_data_task.delay(str(user.id))
         return user
+
+
+class BlockedUserSerializer(serializers.ModelSerializer):
+    blocked = PublicUserSerializer(read_only=True)
+
+    class Meta:
+        model = BlockedUser
+        fields = ("id", "blocked", "created_at")
+        read_only_fields = fields

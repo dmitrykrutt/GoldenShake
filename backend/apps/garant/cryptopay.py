@@ -17,7 +17,7 @@ class CryptoPayClient:
     """Wrapper around https://help.crypt.bot/crypto-pay-api endpoints."""
 
     def __init__(self, token: str = None, base_url: str = None, timeout: int = 15):
-        self.token = token or settings.CRYPTOPAY_API_TOKEN
+        self.token = token or settings.CRYPTOPAY_TOKEN
         self.base_url = (base_url or settings.CRYPTOPAY_API_URL).rstrip("/")
         self.timeout = timeout
 
@@ -27,7 +27,7 @@ class CryptoPayClient:
 
     def _request(self, method: str, endpoint: str, **kwargs) -> dict:
         if not self.is_configured:
-            raise CryptoPayError("CRYPTOPAY_API_TOKEN is not configured.")
+            raise CryptoPayError("CRYPTOPAY_TOKEN is not configured.")
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Crypto-Pay-API-Token": self.token}
         try:
@@ -91,7 +91,7 @@ class CryptoPayClient:
 
 def verify_webhook_signature(body: bytes, signature: str) -> bool:
     """Validate the ``crypto-pay-api-signature`` header of a webhook call."""
-    token = settings.CRYPTOPAY_API_TOKEN
+    token = settings.CRYPTOPAY_TOKEN
     secret_source = settings.CRYPTOPAY_WEBHOOK_SECRET or token
     if not secret_source or not signature:
         return False

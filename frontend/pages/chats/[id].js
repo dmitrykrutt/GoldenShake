@@ -5,21 +5,26 @@ import {
   ArrowLeftIcon,
   GiftIcon,
   MapPinIcon,
+  MicrophoneIcon,
   PaperAirplaneIcon,
   PaperClipIcon,
   PhoneIcon,
+  StopIcon,
+  TrashIcon,
   VideoCameraIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import Layout from '../../components/Layout';
 import MessageBubble from '../../components/MessageBubble';
 import CoinDonation from '../../components/CoinDonation';
-import VerificationBadge from '../../components/VerificationBadge';
 import CallModal from '../../components/CallModal';
+import Username from '../../components/Username';
+import VoiceMessagePlayer from '../../components/VoiceMessagePlayer';
 import api, { apiError, tokens } from '../../lib/api';
 import { connect } from '../../lib/ws';
 import { useRequireAuth } from '../../lib/auth';
 import { useWebRTC } from '../../hooks/useWebRTC';
+import useVoiceRecorder from '../../hooks/useVoiceRecorder';
 
 export default function ChatRoomPage() {
   const router = useRouter();
@@ -36,13 +41,49 @@ export default function ChatRoomPage() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedAttachment, setSelectedAttachment] = useState(null);
 
   const socketRef = useRef(null);
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
   const typingTimer = useRef(null);
+  const attachmentPreviewUrlRef = useRef(null);
 
   const peer = room?.memberships?.find((m) => m.user?.id !== user?.id)?.user;
+  const {
+    isRecording,
+    duration: voiceDuration,
+    preview: voicePreview,
+    startRecording,
+    stopRecording,
+    discardPreview,
+    setError: setVoiceError,
+  } = useVoiceRecorder();
+
+  const appendSystemMessage = useCallback((content) => {
+    if (!content) return;
+    setMessages((prev) => {
+      const existing = prev.find(
+        (message) =>
+          message.message_type === 'system' &&
+          message.content === content &&
+          Date.now() - new Date(message.created_at).getTime() < 5000
+      );
+      if (existing) return prev;
+      return [
+        ...prev,
+        {
+          id: `local-${Date.now()}`,
+          message_type: 'system',
+          content,
+          created_at: new Date().toISOString(),
+          sender: peer || user,
+          localFallback: true,
+        },
+      ];
+    });
+  }, [peer, user]);
 
   const {
     callStatus,
@@ -59,7 +100,11 @@ export default function ChatRoomPage() {
     endCall,
     toggleMute,
     toggleVideo,
-  } = useWebRTC(id, user?.id ? String(user.id) : null);
+  } = useWebRTC(id, user?.id ? String(user.id) : null, { onSystemMessage: appendSystemMessage });
+
+  useEffect(() => () => {
+    if (attachmentPreviewUrlRef.current) URL.revokeObjectURL(attachmentPreviewUrlRef.current);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -103,9 +148,14 @@ export default function ChatRoomPage() {
       onMessage: (event) => {
         switch (event.type) {
           case 'chat.message':
-            setMessages((prev) =>
-              prev.some((m) => m.id === event.message.id) ? prev : [...prev, event.message]
-            );
+            setMessages((prev) => {
+              const filtered = event.message.message_type === 'system'
+                ? prev.filter((message) => !(message.localFallback && message.content === event.message.content))
+                : prev;
+              return filtered.some((m) => m.id === event.message.id)
+                ? filtered
+                : [...filtered, event.message];
+            });
             break;
           case 'chat.message_deleted':
             setMessages((prev) =>
@@ -186,19 +236,19 @@ export default function ChatRoomPage() {
     notifyTyping(false);
   };
 
-  const upload = async (event) => {
-    const file = event.target.files?.[0];
+  const upload = async (file, forcedKind = null) => {
     if (!file) return;
     setUploading(true);
+    setUploadProgress(0);
     setError('');
     try {
-      const kind = file.type.startsWith('image/')
+      const kind = forcedKind || (file.type.startsWith('image/')
         ? 'image'
         : file.type.startsWith('video/')
           ? 'video'
           : file.type.startsWith('audio/')
-            ? 'audio'
-            : 'file';
+            ? 'voice'
+            : 'file');
       const payload = new FormData();
       payload.append('room', id);
       payload.append('media', file);
@@ -206,14 +256,46 @@ export default function ChatRoomPage() {
       payload.append('content', '');
       const { data } = await api.post('/chat/messages/', payload, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          if (!progressEvent.total) return;
+          setUploadProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100));
+        },
       });
       setMessages((prev) => [...prev, data]);
     } catch (err) {
       setError(apiError(err, 'Upload failed.'));
     } finally {
       setUploading(false);
+      setUploadProgress(0);
+      setSelectedAttachment(null);
       if (fileRef.current) fileRef.current.value = '';
     }
+  };
+
+  const handleAttachmentSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (attachmentPreviewUrlRef.current) URL.revokeObjectURL(attachmentPreviewUrlRef.current);
+    attachmentPreviewUrlRef.current = file.type.startsWith('image/') || file.type.startsWith('video/')
+      ? URL.createObjectURL(file)
+      : null;
+    setSelectedAttachment({
+      file,
+      previewUrl: attachmentPreviewUrlRef.current,
+      kind: file.type.startsWith('image/')
+        ? 'image'
+        : file.type.startsWith('video/')
+          ? 'video'
+          : 'file',
+    });
+  };
+
+  const clearSelectedAttachment = () => {
+    if (attachmentPreviewUrlRef.current) {
+      URL.revokeObjectURL(attachmentPreviewUrlRef.current);
+      attachmentPreviewUrlRef.current = null;
+    }
+    setSelectedAttachment(null);
   };
 
   const deleteMessage = (message) => {
@@ -269,21 +351,34 @@ export default function ChatRoomPage() {
             <ArrowLeftIcon className="h-5 w-5" />
           </Link>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h1 className="truncate font-display text-base">
-                {room?.display_title || 'Loading…'}
-              </h1>
-              <VerificationBadge verified={peer?.is_verified} size={14} />
+          <button
+            type="button"
+            onClick={() => peer?.username && router.push(`/profile/${peer.username}`)}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            {peer?.avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={peer.avatar} alt={peer.username} className="h-10 w-10 rounded-full object-cover ring-1 ring-gold/30" />
+            ) : (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-graphite text-sm font-bold text-gold">
+                {(peer?.username || room?.display_title || '?').slice(0, 2).toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <h1 className="truncate font-display text-base">
+                  <Username user={peer} username={room?.display_title || 'Loading…'} />
+                </h1>
+              </div>
+              <p className="text-[11px] text-neutral-500">
+                {typingUsers.length
+                  ? `${typingUsers.join(', ')} печатает…`
+                  : connected
+                    ? 'Зашифровано · онлайн'
+                    : 'Переподключение…'}
+              </p>
             </div>
-            <p className="text-[11px] text-neutral-500">
-              {typingUsers.length
-                ? `${typingUsers.join(', ')} typing…`
-                : connected
-                  ? 'Encrypted · online'
-                  : 'Reconnecting…'}
-            </p>
-          </div>
+          </button>
 
           <button
             type="button"
@@ -319,6 +414,7 @@ export default function ChatRoomPage() {
               key={message.id}
               message={message}
               isOwn={message.sender?.id === user?.id}
+              onOpenProfile={(username) => username && router.push(`/profile/${username}`)}
               onDelete={deleteMessage}
               onReply={setReplyTo}
               onPin={pinMessage}
@@ -337,7 +433,7 @@ export default function ChatRoomPage() {
         {replyTo && (
           <div className="flex items-center gap-2 border-t border-white/5 bg-graphite/60 px-4 py-2 text-xs">
             <span className="min-w-0 flex-1 truncate text-neutral-400">
-              Replying to <strong className="text-gold">{replyTo.sender?.username}</strong>:{' '}
+              Ответ для <strong className="text-gold">{replyTo.sender?.username}</strong>:{' '}
               {replyTo.content}
             </span>
             <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply">
@@ -346,11 +442,52 @@ export default function ChatRoomPage() {
           </div>
         )}
 
+        {selectedAttachment && (
+          <div className="border-t border-white/5 bg-black/60 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 p-3">
+              {selectedAttachment.previewUrl && selectedAttachment.kind === 'image' && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={selectedAttachment.previewUrl} alt="" className="h-16 w-16 rounded-xl object-cover" />
+              )}
+              {selectedAttachment.previewUrl && selectedAttachment.kind === 'video' && (
+                <video src={selectedAttachment.previewUrl} className="h-16 w-16 rounded-xl object-cover" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-white">{selectedAttachment.file.name}</p>
+                <p className="text-xs text-neutral-500">
+                  {Math.max(1, Math.round(selectedAttachment.file.size / 1024))} КБ
+                  {uploading && uploadProgress ? ` · ${uploadProgress}%` : ''}
+                </p>
+              </div>
+              <button type="button" onClick={clearSelectedAttachment} className="rounded-full p-2 text-neutral-400 hover:text-red-400">
+                <TrashIcon className="h-5 w-5" />
+              </button>
+              <button type="button" onClick={() => upload(selectedAttachment.file, selectedAttachment.kind)} className="btn-primary px-4 py-2">
+                Отправить
+              </button>
+            </div>
+          </div>
+        )}
+
+        {voicePreview && (
+          <div className="border-t border-white/5 bg-black/60 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 p-3">
+              <VoiceMessagePlayer src={voicePreview.url} duration={voicePreview.duration} />
+              <button type="button" onClick={discardPreview} className="rounded-full p-2 text-neutral-400 hover:text-red-400">
+                <TrashIcon className="h-5 w-5" />
+              </button>
+              <button type="button" onClick={() => upload(voicePreview.file, 'voice')} className="btn-primary px-4 py-2">
+                Отправить
+              </button>
+            </div>
+          </div>
+        )}
+
         <form
           onSubmit={send}
           className="flex items-end gap-2 border-t border-white/5 bg-black/70 p-3 backdrop-blur-xl"
         >
-          <input ref={fileRef} type="file" onChange={upload} className="hidden" id="chat-upload" />
+          <input ref={fileRef} type="file" accept="image/*,video/*,*/*" onChange={handleAttachmentSelect} className="hidden" id="chat-upload" />
           <button
             type="button"
             aria-label="Attach file"
@@ -368,6 +505,29 @@ export default function ChatRoomPage() {
           >
             <GiftIcon className="h-5 w-5" />
           </button>
+          <button
+            type="button"
+            aria-label={isRecording ? 'Остановить запись' : 'Записать голосовое'}
+            onClick={async () => {
+              try {
+                if (isRecording) {
+                  stopRecording();
+                } else {
+                  setVoiceError('');
+                  await startRecording();
+                }
+              } catch (recordingError) {
+                setError(
+                  recordingError?.name === 'NotAllowedError'
+                    ? 'Для звонков и голосовых сообщений необходим доступ к микрофону. Разрешите доступ в настройках браузера и попробуйте снова.'
+                    : 'Не удалось начать запись голосового сообщения.'
+                );
+              }
+            }}
+            className={`rounded-xl p-2.5 ${isRecording ? 'text-red-400' : 'text-neutral-400 hover:text-gold'}`}
+          >
+            {isRecording ? <StopIcon className="h-5 w-5" /> : <MicrophoneIcon className="h-5 w-5" />}
+          </button>
 
           <textarea
             rows={1}
@@ -379,7 +539,7 @@ export default function ChatRoomPage() {
                 send(event);
               }
             }}
-            placeholder="Write an encrypted message…"
+            placeholder={isRecording ? `Запись голосового… ${voiceDuration} сек` : 'Напишите сообщение…'}
             className="input max-h-40 flex-1 resize-none py-2.5"
           />
 

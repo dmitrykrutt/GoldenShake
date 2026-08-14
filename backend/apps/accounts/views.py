@@ -10,8 +10,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from apps.accounts.models import InviteLink, VerificationRequest
+from apps.accounts.models import BlockedUser, InviteLink, VerificationRequest
 from apps.accounts.serializers import (
+    BlockedUserSerializer,
     GDPRRequestSerializer,
     InviteLinkSerializer,
     LoginSerializer,
@@ -146,9 +147,14 @@ class ProfileViewSet(viewsets.GenericViewSet):
         query = (request.query_params.get("q") or "").strip()
         if len(query) < 2:
             return Response([])
-        users = User.objects.filter(
-            Q(username__icontains=query) & Q(is_active=True)
-        ).exclude(pk=request.user.pk)[:20]
+        blocked_ids = BlockedUser.objects.filter(blocker=request.user).values_list(
+            "blocked_id", flat=True
+        )
+        users = (
+            User.objects.filter(Q(username__icontains=query) & Q(is_active=True))
+            .exclude(pk=request.user.pk)
+            .exclude(pk__in=blocked_ids)[:20]
+        )
         return Response(PublicUserSerializer(users, many=True).data)
 
     @extend_schema(request=GDPRRequestSerializer, responses={202: dict})
@@ -161,6 +167,28 @@ class ProfileViewSet(viewsets.GenericViewSet):
             {"detail": "Your data export has been queued and will be e-mailed to you."},
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(request=None, responses={200: BlockedUserSerializer(many=True)})
+    @action(detail=False, methods=["get"], url_path="blocked")
+    def blocked(self, request):
+        queryset = BlockedUser.objects.filter(blocker=request.user).select_related("blocked")
+        return Response(BlockedUserSerializer(queryset, many=True).data)
+
+    @extend_schema(request=None, responses={200: dict})
+    @action(
+        detail=False,
+        methods=["post", "delete"],
+        url_path=r"block/(?P<username>[^/]+)",
+    )
+    def block(self, request, username=None):
+        user = User.objects.filter(username__iexact=username).exclude(pk=request.user.pk).first()
+        if user is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if request.method == "POST":
+            BlockedUser.objects.get_or_create(blocker=request.user, blocked=user)
+            return Response({"blocked": True, "username": user.username})
+        BlockedUser.objects.filter(blocker=request.user, blocked=user).delete()
+        return Response({"blocked": False, "username": user.username})
 
 
 @extend_schema(tags=["invites"])

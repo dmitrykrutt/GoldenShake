@@ -10,8 +10,8 @@ import {
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
 import Layout from '../../components/Layout';
 import HandshakeBadge from '../../components/HandshakeBadge';
-import VerificationBadge from '../../components/VerificationBadge';
 import CoinDonation from '../../components/CoinDonation';
+import Username from '../../components/Username';
 import api, { apiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
 import { formatDateTime } from '../../lib/constants';
@@ -28,14 +28,20 @@ export default function ProfilePage() {
   const [showDonation, setShowDonation] = useState(false);
   const [newPost, setNewPost] = useState('');
   const [error, setError] = useState('');
+  const [blocked, setBlocked] = useState(false);
 
   const isSelf = user && profile && user.username === profile.username;
 
   const load = useCallback(async () => {
     if (!username) return;
     try {
-      const { data } = await api.get(`/accounts/profiles/${username}/`);
+      const [{ data }, blockedRes] = await Promise.all([
+        api.get(`/accounts/profiles/${username}/`),
+        api.get('/accounts/profiles/blocked/'),
+      ]);
       setProfile(data);
+      const blockedUsers = Array.isArray(blockedRes.data) ? blockedRes.data : [];
+      setBlocked(blockedUsers.some((item) => item.blocked?.username === username));
       if (!data.private_profile || data.username === user?.username) {
         const postsRes = await api.get(`/posts/posts/?author=${username}`);
         setPosts(
@@ -96,6 +102,22 @@ export default function ProfilePage() {
     }
   };
 
+  const toggleBlock = async () => {
+    try {
+      if (blocked) {
+        await api.delete(`/accounts/profiles/block/${profile.username}/`);
+        setBlocked(false);
+      } else {
+        const confirmed = window.confirm(`Заблокировать @${profile.username}?`);
+        if (!confirmed) return;
+        await api.post(`/accounts/profiles/block/${profile.username}/`);
+        setBlocked(true);
+      }
+    } catch (err) {
+      setError(apiError(err, 'Не удалось обновить блокировку.'));
+    }
+  };
+
   if (!profile) {
     return (
       <Layout title="Profile">
@@ -114,7 +136,7 @@ export default function ProfilePage() {
     <Layout title={`@${profile.username}`}>
       <div
         className="card relative overflow-hidden"
-        style={{ borderColor: `${theme.primary}55` }}
+        style={{ borderColor: `${theme.primary}55`, background: `linear-gradient(180deg, ${theme.bg}, rgba(0,0,0,0.75))`, color: theme.primary }}
       >
         <div
           className="absolute inset-x-0 top-0 h-24 opacity-20"
@@ -138,8 +160,7 @@ export default function ProfilePage() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl">@{profile.username}</h1>
-              <VerificationBadge verified={profile.is_verified} size={20} />
+              <h1 className="text-2xl"><Username user={profile} withAt /></h1>
               <HandshakeBadge level={profile.handshake_level || 'green'} />
               {profile.private_profile && (
                 <span className="badge border border-white/10 bg-black/40 px-2 py-0.5 text-neutral-400">
@@ -185,8 +206,16 @@ export default function ProfilePage() {
                 type="button"
                 onClick={() => setShowDonation(true)}
                 className="btn-ghost"
+                style={{ borderColor: `${theme.primary}55`, color: theme.primary }}
               >
                 <GiftIcon className="h-4 w-4" /> Donate
+              </button>
+              <button
+                type="button"
+                onClick={toggleBlock}
+                className={`rounded-xl border px-4 py-3 text-sm font-semibold ${blocked ? 'border-emerald-500/40 text-emerald-300' : 'border-red-500/40 text-red-300'}`}
+              >
+                {blocked ? 'Разблокировать' : 'Заблокировать'}
               </button>
             </div>
           )}
