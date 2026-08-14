@@ -39,22 +39,25 @@ def deposit_webhook(request):
     if deposit.status == DepositInvoice.PAID:
         return Response({"ok": True})
 
-    deposit.status = DepositInvoice.PAID
-    deposit.raw_payload = invoice
-    deposit.save(update_fields=["status", "raw_payload"])
-
     from django.db import transaction
 
     with transaction.atomic():
+        deposit_obj = DepositInvoice.objects.select_for_update().get(pk=deposit.pk)
+        if deposit_obj.status == DepositInvoice.PAID:
+            return Response({"ok": True})
+        deposit_obj.status = DepositInvoice.PAID
+        deposit_obj.raw_payload = invoice
+        deposit_obj.save(update_fields=["status", "raw_payload"])
+
         balance, _ = FiatBalance.objects.select_for_update().get_or_create(
-            user=deposit.user, currency=deposit.currency, defaults={"amount": 0}
+            user=deposit_obj.user, currency=deposit_obj.currency, defaults={"amount": 0}
         )
-        balance.amount += deposit.amount
+        balance.amount += deposit_obj.amount
         balance.save(update_fields=["amount", "updated_at"])
         FiatTransaction.objects.create(
-            user=deposit.user,
-            currency=deposit.currency,
-            amount=deposit.amount,
+            user=deposit_obj.user,
+            currency=deposit_obj.currency,
+            amount=deposit_obj.amount,
             tx_type=FiatTransaction.DEPOSIT,
             description=f"CryptoPay deposit invoice {invoice_id}",
         )

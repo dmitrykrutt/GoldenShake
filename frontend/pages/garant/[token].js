@@ -137,7 +137,7 @@ export default function GarantDealPage() {
                 Подтвердить получение
               </button>
             )}
-            {isBuyer && ['paid', 'awaiting_payment'].includes(deal.status) && (
+            {isBuyer && deal.status === 'paid' && (
               <button type="button" onClick={refund} disabled={busy} className="btn-dark">
                 Вернуть деньги
               </button>

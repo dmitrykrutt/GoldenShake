@@ -235,25 +235,34 @@ class WithdrawView(APIView):
         currency = serializer.validated_data["currency"].upper()
         wallet = serializer.validated_data["wallet"]
 
-        balance = FiatBalance.objects.filter(user=request.user, currency=currency).first()
-        available = balance.amount if balance else 0
-        if available < amount:
-            return Response(
-                {"detail": f"Insufficient balance: {available} {currency} available."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         from django.db import transaction as db_transaction
 
         with db_transaction.atomic():
-            FiatBalance.objects.select_for_update().filter(
+            balance = FiatBalance.objects.select_for_update().filter(
                 user=request.user, currency=currency
-            ).update(amount=available - amount)
+            ).first()
+            available = balance.amount if balance else 0
+            if available < amount:
+                return Response(
+                    {"detail": f"Insufficient balance: {available} {currency} available."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if balance:
+                balance.amount = available - amount
+                balance.save(update_fields=["amount", "updated_at"])
             withdrawal = WithdrawalRequest.objects.create(
                 user=request.user,
                 currency=currency,
                 amount=amount,
                 wallet_address=wallet,
+            )
+            from apps.coins.models import FiatTransaction
+            FiatTransaction.objects.create(
+                user=request.user,
+                currency=currency,
+                amount=amount,
+                tx_type=FiatTransaction.WITHDRAWAL,
+                description=f"Withdrawal to {wallet}",
             )
 
         return Response(

@@ -11,17 +11,7 @@ import HandshakeBadge from '../components/HandshakeBadge';
 import VerificationBadge from '../components/VerificationBadge';
 import api, { apiError } from '../lib/api';
 import { useRequireAuth } from '../lib/auth';
-
-const THEMES = [
-  { id: 'midnight', name: 'Midnight', primary: '#6C63FF', accent: '#FF6584', bg: '#0D0D1A' },
-  { id: 'golden', name: 'Golden Hour', primary: '#F5A623', accent: '#F76B1C', bg: '#1A1200' },
-  { id: 'emerald', name: 'Emerald', primary: '#00C896', accent: '#00E5FF', bg: '#001A12' },
-  { id: 'crimson', name: 'Crimson', primary: '#E63946', accent: '#FF6B6B', bg: '#1A0005' },
-  { id: 'ocean', name: 'Ocean', primary: '#0077B6', accent: '#00B4D8', bg: '#00080F' },
-  { id: 'sakura', name: 'Sakura', primary: '#FF85A1', accent: '#FFC2D1', bg: '#1A0010' },
-  { id: 'graphite', name: 'Graphite', primary: '#9E9E9E', accent: '#E0E0E0', bg: '#111111' },
-  { id: 'aurora', name: 'Aurora', primary: '#7B2FBE', accent: '#00F5D4', bg: '#080318' },
-];
+import { THEMES } from '../lib/themes';
 
 const TABS = [
   { key: 'profile', label: 'Profile', icon: UserIcon },
@@ -353,11 +343,11 @@ export default function SettingsPage() {
             <p className="mt-2 text-sm text-neutral-400">
               Each link admits up to five people. You earn handshakes for every member who joins.
             </p>
-            <button type="button" onClick={createInvite} className="btn-ghost mt-4"
-              style={['green', 'green_plus'].includes(user?.handshake_level) ? { display: 'none' } : {}}
-            >
-              Generate new invite
-            </button>
+            {!['green', 'green_plus'].includes(user?.handshake_level) && (
+              <button type="button" onClick={createInvite} className="btn-ghost mt-4">
+                Generate new invite
+              </button>
+            )}
             {['green', 'green_plus'].includes(user?.handshake_level) && (
               <p className="mt-3 text-xs text-neutral-500">Пользователи с зелёным статусом не могут создавать приглашения.</p>
             )}

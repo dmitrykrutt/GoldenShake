@@ -15,21 +15,7 @@ import CoinDonation from '../../components/CoinDonation';
 import api, { apiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
 import { formatDateTime } from '../../lib/constants';
-
-const THEMES = [
-  { id: 'midnight', primary: '#6C63FF', accent: '#FF6584', bg: '#0D0D1A' },
-  { id: 'golden', primary: '#F5A623', accent: '#F76B1C', bg: '#1A1200' },
-  { id: 'emerald', primary: '#00C896', accent: '#00E5FF', bg: '#001A12' },
-  { id: 'crimson', primary: '#E63946', accent: '#FF6B6B', bg: '#1A0005' },
-  { id: 'ocean', primary: '#0077B6', accent: '#00B4D8', bg: '#00080F' },
-  { id: 'sakura', primary: '#FF85A1', accent: '#FFC2D1', bg: '#1A0010' },
-  { id: 'graphite', primary: '#9E9E9E', accent: '#E0E0E0', bg: '#111111' },
-  { id: 'aurora', primary: '#7B2FBE', accent: '#00F5D4', bg: '#080318' },
-];
-
-function resolveTheme(themeId) {
-  return THEMES.find((t) => t.id === themeId) || THEMES[0];
-}
+import { resolveTheme } from '../../lib/themes';
 
 export default function ProfilePage() {
   const router = useRouter();
