@@ -15,7 +15,7 @@ import Layout from '../../components/Layout';
 import MessageBubble from '../../components/MessageBubble';
 import CoinDonation from '../../components/CoinDonation';
 import VerificationBadge from '../../components/VerificationBadge';
-import api, { API_URL, apiError, tokens } from '../../lib/api';
+import api, { apiError, tokens } from '../../lib/api';
 import { connect } from '../../lib/ws';
 import { useRequireAuth } from '../../lib/auth';
 
@@ -223,19 +223,22 @@ export default function ChatRoomPage() {
     }
   };
 
+  const [callToast, setCallToast] = useState('');
+
   const pinChat = () => socketRef.current?.send({ action: 'pin_chat', pinned: !room?.is_pinned });
 
-  const startCall = (video) => {
-    router.push(`/chats/${id}?call=${video ? 'video' : 'audio'}`, undefined, { shallow: true });
-    window.open(
-      `${API_URL.replace(/\/$/, '')}/api/docs/#/calls`,
-      '_blank',
-      'noopener,noreferrer'
-    );
+  const startCall = () => {
+    setCallToast('Звонки скоро будут доступны 🎧');
+    setTimeout(() => setCallToast(''), 3500);
   };
 
   return (
     <Layout title={room?.display_title || 'Chat'} fullBleed>
+      {callToast && (
+        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-graphite px-5 py-3 text-sm shadow-gold">
+          {callToast}
+        </div>
+      )}
       <div className="flex h-[calc(100vh-0px)] flex-col lg:h-screen">
         <header className="flex items-center gap-3 border-b border-white/5 bg-black/70 px-4 py-3 backdrop-blur-xl">
           <Link href="/chats" className="text-neutral-400 hover:text-gold">
@@ -261,7 +264,7 @@ export default function ChatRoomPage() {
           <button
             type="button"
             aria-label="Audio call"
-            onClick={() => startCall(false)}
+            onClick={() => startCall()}
             className="rounded-lg p-2 text-neutral-400 hover:text-gold"
           >
             <PhoneIcon className="h-5 w-5" />
@@ -269,7 +272,7 @@ export default function ChatRoomPage() {
           <button
             type="button"
             aria-label="Video call"
-            onClick={() => startCall(true)}
+            onClick={() => startCall()}
             className="rounded-lg p-2 text-neutral-400 hover:text-gold"
           >
             <VideoCameraIcon className="h-5 w-5" />

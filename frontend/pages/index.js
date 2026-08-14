@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
@@ -58,6 +58,7 @@ const LEVELS = [
 export default function Home() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [animated, setAnimated] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
@@ -65,7 +66,19 @@ export default function Home() {
     }
   }, [user, loading, router]);
 
+  useEffect(() => {
+    // Only animate on first visit in a session
+    const alreadySeen = sessionStorage.getItem('gs_landing_seen');
+    if (!alreadySeen) {
+      setAnimated(true);
+      sessionStorage.setItem('gs_landing_seen', '1');
+    }
+  }, []);
+
   if (loading || user) return null;
+
+  const initial = animated ? { opacity: 0, y: 12 } : false;
+  const initialSlide = animated ? { opacity: 0, y: 20 } : false;
 
   return (
     <Layout title="GoldenShake — premium secure messenger" sidebar={false} fullBleed>
@@ -86,7 +99,7 @@ export default function Home() {
           <div className="pointer-events-none absolute left-1/2 top-0 -z-10 h-96 w-[42rem] -translate-x-1/2 rounded-full bg-gold/10 blur-[120px]" />
 
           <motion.span
-            initial={{ opacity: 0, y: 12 }}
+            initial={initial}
             animate={{ opacity: 1, y: 0 }}
             className="badge border border-gold/30 bg-gold/10 px-4 py-1.5 text-gold"
           >
@@ -94,18 +107,18 @@ export default function Home() {
           </motion.span>
 
           <motion.h1
-            initial={{ opacity: 0, y: 20 }}
+            initial={initialSlide}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
+            transition={{ delay: animated ? 0.05 : 0 }}
             className="mx-auto mt-6 max-w-4xl text-4xl font-bold leading-tight sm:text-6xl"
           >
             Conversations worth <span className="gold-text">protecting</span>.
           </motion.h1>
 
           <motion.p
-            initial={{ opacity: 0, y: 20 }}
+            initial={initialSlide}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.12 }}
+            transition={{ delay: animated ? 0.12 : 0 }}
             className="mx-auto mt-6 max-w-2xl text-base text-neutral-400 sm:text-lg"
           >
             GoldenShake is a private messenger for people who trade trust. Encrypted chats,
@@ -114,9 +127,9 @@ export default function Home() {
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={initialSlide}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            transition={{ delay: animated ? 0.2 : 0 }}
             className="mt-10 flex flex-wrap items-center justify-center gap-4"
           >
             <Link href="/auth/register" className="btn-primary px-7 py-3 text-base">
@@ -128,9 +141,9 @@ export default function Home() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
+            initial={animated ? { opacity: 0, scale: 0.96 } : false}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3 }}
+            transition={{ delay: animated ? 0.3 : 0 }}
             className="mx-auto mt-16 max-w-3xl"
           >
             <div className="glass-gold animate-floaty rounded-3xl p-5 text-left">

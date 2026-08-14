@@ -70,3 +70,29 @@ class DonationSerializer(serializers.Serializer):
             raise serializers.ValidationError("You cannot donate to yourself.")
         self.context["recipient"] = recipient
         return value
+
+
+class FiatBalanceSerializer(serializers.Serializer):
+    currency = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2)
+    updated_at = serializers.DateTimeField()
+
+
+class FiatTransactionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    currency = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2)
+    tx_type = serializers.CharField()
+    description = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
+class DepositSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value="0.01")
+    currency = serializers.CharField(max_length=10)
+
+
+class WithdrawSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value="0.01")
+    currency = serializers.CharField(max_length=10)
+    wallet = serializers.CharField(max_length=200)

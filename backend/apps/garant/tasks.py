@@ -35,6 +35,27 @@ def release_funds_task(self, deal_id: str):
             raise self.retry(exc=exc, countdown=60)
 
     deal.release()
+
+    from apps.coins.models import FiatBalance, FiatTransaction
+
+    from django.db import transaction as db_transaction
+
+    with db_transaction.atomic():
+        balance, _ = FiatBalance.objects.select_for_update().get_or_create(
+            user=deal.creator,
+            currency=deal.crypto_currency,
+            defaults={"amount": 0},
+        )
+        balance.amount += deal.seller_payout
+        balance.save(update_fields=["amount", "updated_at"])
+        FiatTransaction.objects.create(
+            user=deal.creator,
+            currency=deal.crypto_currency,
+            amount=deal.seller_payout,
+            tx_type=FiatTransaction.DEAL_INCOME,
+            description=f"Payout for deal #{str(deal.id)[:8]} — {deal.title}",
+        )
+
     notify(
         deal.creator,
         "garant",

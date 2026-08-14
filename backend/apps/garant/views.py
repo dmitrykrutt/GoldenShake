@@ -42,6 +42,35 @@ def _create_deal_room(deal: GarantDeal):
     return room
 
 
+def _send_system_message(deal: GarantDeal, text: str):
+    """Save a system message to the deal's chat room and broadcast via WS."""
+    if deal.room_id is None:
+        return
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+
+    from apps.chat.models import Message
+    from apps.chat.serializers import MessageSerializer
+
+    message = Message.objects.create(
+        room=deal.room,
+        sender=deal.creator,
+        content=text,
+        message_type=Message.Type.SYSTEM,
+    )
+    try:
+        channel_layer = get_channel_layer()
+        if channel_layer is not None:
+            serialized = MessageSerializer(message).data
+            async_to_sync(channel_layer.group_send)(
+                f"chat.{deal.room_id}",
+                {"type": "chat.message", "message": serialized},
+            )
+    except Exception:  # pragma: no cover
+        logger.exception("Failed to broadcast system message for deal %s", deal.id)
+    return message
+
+
 @extend_schema(tags=["garant"])
 class GarantDealViewSet(viewsets.ModelViewSet):
     """Guarantee deals: create, share, pay, complete, confirm and dispute."""
@@ -59,6 +88,22 @@ class GarantDealViewSet(viewsets.ModelViewSet):
             .select_related("creator", "buyer", "room")
             .prefetch_related("payments", "disputes")
         )
+
+    def list(self, request, *args, **kwargs):
+        history = request.query_params.get("history", "").lower() == "true"
+        history_statuses = {
+            GarantDeal.Status.CONFIRMED,
+            GarantDeal.Status.RELEASED,
+            GarantDeal.Status.REFUNDED,
+            GarantDeal.Status.CANCELLED,
+        }
+        qs = self.get_queryset()
+        if history:
+            qs = qs.filter(status__in=history_statuses)
+        else:
+            qs = qs.exclude(status__in=history_statuses)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -159,6 +204,10 @@ class GarantDealViewSet(viewsets.ModelViewSet):
         if deal.status != GarantDeal.Status.PAID:
             return Response({"detail": "Funds must be held before completing."}, status=400)
         deal.mark_completed()
+        _send_system_message(
+            deal,
+            "✅ Продавец выполнил заказ. Ожидается подтверждение покупателя.",
+        )
 
         from apps.notifications.services import notify
 
@@ -220,10 +269,48 @@ class GarantDealViewSet(viewsets.ModelViewSet):
         deal = self.get_object()
         if deal.creator_id != request.user.id:
             return Response({"detail": "Only the seller can cancel."}, status=403)
+        if deal.buyer_id is not None:
+            return Response({"detail": "Нельзя отменить сделку — покупатель уже присоединился. Откройте спор."}, status=403)
         if deal.status not in {GarantDeal.Status.DRAFT, GarantDeal.Status.AWAITING_BUYER, GarantDeal.Status.AWAITING_PAYMENT}:
             return Response({"detail": "Paid deals cannot be cancelled, open a dispute."}, status=400)
         deal.status = GarantDeal.Status.CANCELLED
         deal.save(update_fields=["status", "updated_at"])
+        return Response(GarantDealSerializer(deal, context={"request": request}).data)
+
+    @extend_schema(request=None, responses={200: GarantDealSerializer})
+    @action(detail=True, methods=["post"], url_path="refund")
+    def refund(self, request, pk=None):
+        """Buyer requests a refund — returns full amount to their fiat balance."""
+        deal = self.get_object()
+        if deal.buyer_id != request.user.id:
+            return Response({"detail": "Only the buyer can request a refund."}, status=403)
+        if deal.status not in {GarantDeal.Status.PAID, GarantDeal.Status.AWAITING_PAYMENT}:
+            return Response({"detail": "Refund is only available for paid or awaiting-payment deals."}, status=400)
+
+        deal.status = GarantDeal.Status.REFUNDED
+        deal.save(update_fields=["status", "updated_at"])
+
+        from apps.coins.models import FiatBalance, FiatTransaction
+
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            balance, _ = FiatBalance.objects.select_for_update().get_or_create(
+                user=request.user,
+                currency=deal.crypto_currency,
+                defaults={"amount": 0},
+            )
+            balance.amount += deal.price_crypto
+            balance.save(update_fields=["amount", "updated_at"])
+            FiatTransaction.objects.create(
+                user=request.user,
+                currency=deal.crypto_currency,
+                amount=deal.price_crypto,
+                tx_type=FiatTransaction.DEAL_REFUND,
+                description=f"Refund for deal #{deal.private_link_token[:8]} — {deal.title}",
+            )
+
+        _send_system_message(deal, f"↩️ Покупатель запросил возврат средств по сделке #{deal.private_link_token[:8]}.")
         return Response(GarantDealSerializer(deal, context={"request": request}).data)
 
 
@@ -251,6 +338,12 @@ def cryptopay_webhook(request):
         deal = payment.deal
         deal.mark_paid()
         _create_deal_room(deal)
+
+        if deal.buyer:
+            _send_system_message(
+                deal,
+                f"💰 {deal.buyer.username} оплатил заказ #{deal.private_link_token[:8]} и ожидает выполнения.",
+            )
 
         from apps.notifications.services import notify
 

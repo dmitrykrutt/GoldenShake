@@ -180,6 +180,9 @@ class InviteLinkViewSet(
         return InviteLink.objects.filter(creator=self.request.user)
 
     def perform_create(self, serializer):
+        if self.request.user.handshake_level in {"green", "green_plus"}:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Пользователи с зелёным статусом не могут создавать приглашения.")
         serializer.save(
             creator=self.request.user,
             max_uses=serializer.validated_data.get("max_uses", settings.INVITE_MAX_USES),

@@ -14,6 +14,7 @@ export default function GarantDealPage() {
   const [payment, setPayment] = useState(null);
   const [disputeText, setDisputeText] = useState('');
   const [showDispute, setShowDispute] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,6 +73,12 @@ export default function GarantDealPage() {
       'Confirmed. Funds are being released to the seller.'
     );
 
+  const refund = () =>
+    run(
+      () => api.post(`/garant/deals/${deal.id}/refund/`),
+      'Refund requested. Funds returned to your fiat balance.'
+    );
+
   const cancel = () => run(() => api.post(`/garant/deals/${deal.id}/cancel/`), 'Deal cancelled.');
 
   const openDispute = (event) => {
@@ -117,12 +124,22 @@ export default function GarantDealPage() {
             )}
             {isSeller && deal.status === 'paid' && (
               <button type="button" onClick={complete} disabled={busy} className="btn-primary">
-                Mark as delivered
+                Я выполнил заказ
               </button>
             )}
             {isBuyer && deal.status === 'completed_by_seller' && (
-              <button type="button" onClick={confirm} disabled={busy} className="btn-primary">
-                Confirm and release funds
+              <button
+                type="button"
+                onClick={() => setShowConfirmDialog(true)}
+                disabled={busy}
+                className="btn-primary"
+              >
+                Подтвердить получение
+              </button>
+            )}
+            {isBuyer && ['paid', 'awaiting_payment'].includes(deal.status) && (
+              <button type="button" onClick={refund} disabled={busy} className="btn-dark">
+                Вернуть деньги
               </button>
             )}
             {['paid', 'completed_by_seller'].includes(deal.status) && (isBuyer || isSeller) && (
@@ -135,7 +152,7 @@ export default function GarantDealPage() {
                 Open dispute
               </button>
             )}
-            {isSeller && ['draft', 'awaiting_buyer', 'awaiting_payment'].includes(deal.status) && (
+            {isSeller && ['draft', 'awaiting_buyer', 'awaiting_payment'].includes(deal.status) && !deal.buyer && (
               <button type="button" onClick={cancel} disabled={busy} className="btn-dark">
                 Cancel deal
               </button>
@@ -208,6 +225,37 @@ export default function GarantDealPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showConfirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl glass-gold p-6">
+            <h2 className="font-display text-xl">Подтвердить получение?</h2>
+            <p className="mt-3 text-sm text-neutral-400">
+              Вы уверены? После подтверждения деньги будут переведены продавцу.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDialog(false)}
+                className="btn-dark flex-1"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setShowConfirmDialog(false);
+                  confirm();
+                }}
+                className="btn-primary flex-1"
+              >
+                Подтвердить
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </Layout>
