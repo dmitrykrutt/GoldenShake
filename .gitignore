@@ -34,3 +34,8 @@ firebase-credentials.json
 .vscode/
 .idea/
 .DS_Store
+.env
+.env.local
+backend/venv/
+frontend/.next/
+frontend/node_modules/
