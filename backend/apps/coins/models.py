@@ -146,3 +146,110 @@ class InviteReward(models.Model):
 
     def __str__(self) -> str:
         return f"invite reward {self.amount} {self.rarity}"
+
+
+class FiatBalance(models.Model):
+    """Per-currency fiat balance for a user (credited from garant deals and deposits)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="fiat_balances"
+    )
+    currency = models.CharField(max_length=10)  # e.g. 'USD', 'USDT', 'RUB'
+    amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "coins_fiat_balance"
+        unique_together = ("user", "currency")
+        ordering = ("user", "currency")
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.amount} {self.currency} (fiat)"
+
+
+class FiatTransaction(models.Model):
+    """Immutable fiat ledger entry."""
+
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+    DEAL_INCOME = "deal_income"
+    DEAL_REFUND = "deal_refund"
+    TYPE_CHOICES = [
+        (DEPOSIT, "Deposit"),
+        (WITHDRAWAL, "Withdrawal"),
+        (DEAL_INCOME, "Deal Income"),
+        (DEAL_REFUND, "Deal Refund"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="fiat_transactions"
+    )
+    currency = models.CharField(max_length=10)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    tx_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "coins_fiat_transaction"
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.tx_type}: {self.amount} {self.currency} ({self.user_id})"
+
+
+class DepositInvoice(models.Model):
+    """A CryptoPay invoice created for a user deposit."""
+
+    PENDING = "pending"
+    PAID = "paid"
+    EXPIRED = "expired"
+    STATUS_CHOICES = [(PENDING, "Pending"), (PAID, "Paid"), (EXPIRED, "Expired")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="deposit_invoices"
+    )
+    cryptopay_invoice_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    pay_url = models.URLField(blank=True, default="")
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    currency = models.CharField(max_length=10)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=PENDING)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "coins_deposit_invoice"
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"deposit invoice {self.cryptopay_invoice_id or self.id} ({self.status})"
+
+
+class WithdrawalRequest(models.Model):
+    """A pending withdrawal request from a user."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (PENDING, "Pending"),
+        (COMPLETED, "Completed"),
+        (REJECTED, "Rejected"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="withdrawal_requests"
+    )
+    currency = models.CharField(max_length=10)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    wallet_address = models.CharField(max_length=200)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "coins_withdrawal_request"
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"withdrawal {self.amount} {self.currency} by {self.user_id} ({self.status})"

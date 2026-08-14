@@ -15,6 +15,7 @@ import CoinDonation from '../../components/CoinDonation';
 import api, { apiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
 import { formatDateTime } from '../../lib/constants';
+import { resolveTheme } from '../../lib/themes';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -107,20 +108,18 @@ export default function ProfilePage() {
     );
   }
 
+  const theme = resolveTheme(profile.theme_color);
+
   return (
     <Layout title={`@${profile.username}`}>
       <div
         className="card relative overflow-hidden"
-        style={
-          profile.theme_color
-            ? { borderColor: `${profile.theme_color}55` }
-            : undefined
-        }
+        style={{ borderColor: `${theme.primary}55` }}
       >
         <div
           className="absolute inset-x-0 top-0 h-24 opacity-20"
           style={{
-            background: `linear-gradient(135deg, ${profile.theme_color || '#C9A84C'}, transparent)`,
+            background: `linear-gradient(135deg, ${theme.primary}, ${theme.accent}, transparent)`,
           }}
         />
         <div className="relative flex flex-wrap items-start gap-5">

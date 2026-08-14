@@ -11,6 +11,7 @@ import HandshakeBadge from '../components/HandshakeBadge';
 import VerificationBadge from '../components/VerificationBadge';
 import api, { apiError } from '../lib/api';
 import { useRequireAuth } from '../lib/auth';
+import { THEMES } from '../lib/themes';
 
 const TABS = [
   { key: 'profile', label: 'Profile', icon: UserIcon },
@@ -51,7 +52,7 @@ export default function SettingsPage() {
         username: user.username || '',
         bio: user.bio || '',
         phone: user.phone || '',
-        theme_color: user.theme_color || '#C9A84C',
+        theme_color: user.theme_color || 'midnight',
         private_profile: Boolean(user.private_profile),
         paid_messages_enabled: Boolean(user.paid_messages_enabled),
         paid_message_price: user.paid_message_price ?? 1,
@@ -89,7 +90,7 @@ export default function SettingsPage() {
         theme_color: form.theme_color,
         private_profile: form.private_profile,
         paid_messages_enabled: form.paid_messages_enabled,
-        paid_message_price: Number(form.paid_message_price),
+        ...(form.paid_messages_enabled ? { paid_message_price: Number(form.paid_message_price) } : { paid_message_price: 0 }),
         newsletter_opt_in: form.newsletter_opt_in,
         telegram_chat_id: form.telegram_chat_id || '',
         social_links: socialLinks,
@@ -228,18 +229,31 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor="theme">
-                Accent colour
-              </label>
-              <input
-                id="theme"
-                type="color"
-                className="h-11 w-full rounded-xl border border-white/10 bg-black/50 p-1"
-                value={form.theme_color}
-                onChange={set('theme_color')}
-              />
+          <div>
+              <label className="label">Тема профиля</label>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {THEMES.map((theme) => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, theme_color: theme.id }))}
+                    className={`rounded-xl border p-3 text-left transition-all ${
+                      form.theme_color === theme.id
+                        ? 'border-white/40 ring-2 ring-white/20'
+                        : 'border-white/10 hover:border-white/20'
+                    }`}
+                    style={{ background: theme.bg }}
+                  >
+                    <div className="mb-1.5 flex gap-1">
+                      <span className="h-3 w-3 rounded-full" style={{ background: theme.primary }} />
+                      <span className="h-3 w-3 rounded-full" style={{ background: theme.accent }} />
+                    </div>
+                    <p className="text-xs font-medium" style={{ color: theme.primary }}>
+                      {theme.name}
+                    </p>
+                  </button>
+                ))}
+              </div>
             </div>
             <div>
               <label className="label" htmlFor="paid-price">
@@ -249,12 +263,12 @@ export default function SettingsPage() {
                 id="paid-price"
                 type="number"
                 min="1"
-                className="input"
+                className="input disabled:opacity-40"
+                disabled={!form.paid_messages_enabled}
                 value={form.paid_message_price}
                 onChange={set('paid_message_price')}
               />
             </div>
-          </div>
 
           <label className="flex items-center gap-3 text-sm text-neutral-300">
             <input
@@ -329,9 +343,14 @@ export default function SettingsPage() {
             <p className="mt-2 text-sm text-neutral-400">
               Each link admits up to five people. You earn handshakes for every member who joins.
             </p>
-            <button type="button" onClick={createInvite} className="btn-ghost mt-4">
-              Generate new invite
-            </button>
+            {!['green', 'green_plus'].includes(user?.handshake_level) && (
+              <button type="button" onClick={createInvite} className="btn-ghost mt-4">
+                Generate new invite
+              </button>
+            )}
+            {['green', 'green_plus'].includes(user?.handshake_level) && (
+              <p className="mt-3 text-xs text-neutral-500">Пользователи с зелёным статусом не могут создавать приглашения.</p>
+            )}
             <ul className="mt-4 divide-y divide-white/5">
               {invites.map((invite) => (
                 <li key={invite.id} className="flex items-center gap-3 py-3">

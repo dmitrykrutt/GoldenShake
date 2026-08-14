@@ -126,3 +126,150 @@ class LevelInfoView(APIView):
     @extend_schema(responses={200: dict})
     def get(self, request):
         return Response({"levels": LEVEL_THRESHOLDS, "exchange_rates": EXCHANGE_RATES})
+
+
+@extend_schema(tags=["coins"])
+class FiatBalanceListView(APIView):
+    """List all fiat balances for the authenticated user."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: list})
+    def get(self, request):
+        from apps.coins.models import FiatBalance
+
+        balances = FiatBalance.objects.filter(user=request.user).values(
+            "currency", "amount", "updated_at"
+        )
+        return Response(list(balances))
+
+
+@extend_schema(tags=["coins"])
+class FiatTransactionListView(APIView):
+    """List fiat transaction history for the authenticated user."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: list})
+    def get(self, request):
+        from apps.coins.models import FiatTransaction
+
+        txs = FiatTransaction.objects.filter(user=request.user).values(
+            "id", "currency", "amount", "tx_type", "description", "created_at"
+        )
+        return Response(list(txs))
+
+
+@extend_schema(tags=["coins"])
+class DepositView(APIView):
+    """Create a CryptoPay invoice for a user deposit."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={201: dict})
+    def post(self, request):
+        from apps.coins.models import DepositInvoice
+        from apps.coins.serializers import DepositSerializer
+        from apps.garant.cryptopay import CryptoPayClient, CryptoPayError
+
+        serializer = DepositSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        amount = serializer.validated_data["amount"]
+        currency = serializer.validated_data["currency"].upper()
+
+        invoice_obj = DepositInvoice.objects.create(
+            user=request.user, amount=amount, currency=currency
+        )
+        client = CryptoPayClient()
+        if not client.is_configured:
+            return Response(
+                {"detail": "Payment provider not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            import json
+
+            invoice = client.create_invoice(
+                amount=amount,
+                asset=currency,
+                description=f"GoldenShake deposit for @{request.user.username}",
+                payload=json.dumps(
+                    {"deposit_invoice_id": str(invoice_obj.id), "user_id": str(request.user.id)}
+                ),
+            )
+        except CryptoPayError as exc:
+            return Response(
+                {"detail": f"Payment provider error: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        invoice_obj.cryptopay_invoice_id = str(invoice.get("invoice_id", ""))
+        invoice_obj.pay_url = invoice.get("pay_url") or invoice.get("bot_invoice_url", "")
+        invoice_obj.raw_payload = invoice
+        invoice_obj.save(update_fields=["cryptopay_invoice_id", "pay_url", "raw_payload"])
+        return Response(
+            {
+                "invoice_id": str(invoice_obj.id),
+                "pay_url": invoice_obj.pay_url,
+                "amount": str(amount),
+                "currency": currency,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema(tags=["coins"])
+class WithdrawView(APIView):
+    """Submit a withdrawal request (processed manually by staff)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={201: dict})
+    def post(self, request):
+        from apps.coins.models import FiatBalance, WithdrawalRequest
+        from apps.coins.serializers import WithdrawSerializer
+
+        serializer = WithdrawSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        amount = serializer.validated_data["amount"]
+        currency = serializer.validated_data["currency"].upper()
+        wallet = serializer.validated_data["wallet"]
+
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            balance = FiatBalance.objects.select_for_update().filter(
+                user=request.user, currency=currency
+            ).first()
+            available = balance.amount if balance else 0
+            if available < amount:
+                return Response(
+                    {"detail": f"Insufficient balance: {available} {currency} available."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if balance:
+                balance.amount = available - amount
+                balance.save(update_fields=["amount", "updated_at"])
+            withdrawal = WithdrawalRequest.objects.create(
+                user=request.user,
+                currency=currency,
+                amount=amount,
+                wallet_address=wallet,
+            )
+            from apps.coins.models import FiatTransaction
+            FiatTransaction.objects.create(
+                user=request.user,
+                currency=currency,
+                amount=amount,
+                tx_type=FiatTransaction.WITHDRAWAL,
+                description=f"Withdrawal to {wallet}",
+            )
+
+        return Response(
+            {
+                "detail": "Withdrawal request submitted and will be processed within 24 hours.",
+                "id": withdrawal.id,
+                "status": withdrawal.status,
+            },
+            status=status.HTTP_201_CREATED,
+        )

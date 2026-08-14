@@ -46,7 +46,7 @@
   }
 
   .card {
-    @apply glass rounded-2xl p-6 shadow-glass;
+    @apply rounded-2xl border border-white/8 bg-graphite/50 p-6 shadow-glass backdrop-blur-xl transition-colors;
   }
 
   .btn {

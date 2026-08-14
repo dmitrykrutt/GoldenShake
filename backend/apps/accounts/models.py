@@ -54,9 +54,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     """Primary account entity for GoldenShake."""
 
     class Theme(models.TextChoices):
-        GOLD = "gold", "Gold"
+        MIDNIGHT = "midnight", "Midnight"
+        GOLDEN = "golden", "Golden Hour"
+        EMERALD = "emerald", "Emerald"
+        CRIMSON = "crimson", "Crimson"
+        OCEAN = "ocean", "Ocean"
+        SAKURA = "sakura", "Sakura"
         GRAPHITE = "graphite", "Graphite"
-        BLACK = "black", "Black"
+        AURORA = "aurora", "Aurora"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(
@@ -78,7 +83,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     bio = models.TextField(max_length=500, blank=True, default="")
     social_links = models.JSONField(default=dict, blank=True)
     theme_color = models.CharField(
-        max_length=16, choices=Theme.choices, default=Theme.GOLD
+        max_length=16, choices=Theme.choices, default=Theme.MIDNIGHT
     )
 
     private_profile = models.BooleanField(default=False)

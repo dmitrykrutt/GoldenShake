@@ -12,7 +12,9 @@ import { CRYPTO_CURRENCIES } from '../../lib/constants';
 
 export default function GarantIndexPage() {
   const { user } = useRequireAuth();
-  const [deals, setDeals] = useState([]);
+  const [activeDeals, setActiveDeals] = useState([]);
+  const [historyDeals, setHistoryDeals] = useState([]);
+  const [tab, setTab] = useState('active');
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     title: '',
@@ -27,8 +29,12 @@ export default function GarantIndexPage() {
 
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get('/garant/deals/');
-      setDeals(Array.isArray(data) ? data : data.results || []);
+      const [activeRes, historyRes] = await Promise.all([
+        api.get('/garant/deals/'),
+        api.get('/garant/deals/?history=true'),
+      ]);
+      setActiveDeals(Array.isArray(activeRes.data) ? activeRes.data : activeRes.data.results || []);
+      setHistoryDeals(Array.isArray(historyRes.data) ? historyRes.data : historyRes.data.results || []);
     } catch (err) {
       setError(apiError(err, 'Could not load your deals.'));
     }
@@ -68,6 +74,8 @@ export default function GarantIndexPage() {
     setNotice('Private deal link copied — send it to your counterparty.');
   };
 
+  const deals = tab === 'active' ? activeDeals : historyDeals;
+
   return (
     <Layout title="Garant escrow">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -86,6 +94,23 @@ export default function GarantIndexPage() {
 
       {notice && <p className="mb-4 text-xs text-green-400">{notice}</p>}
       {error && <p className="mb-4 text-xs text-red-400">{error}</p>}
+
+      <div className="mb-5 flex gap-2 border-b border-white/5">
+        <button
+          type="button"
+          onClick={() => setTab('active')}
+          className={`pb-2 text-sm font-medium transition-colors ${tab === 'active' ? 'border-b-2 border-gold text-gold' : 'text-neutral-500 hover:text-neutral-300'}`}
+        >
+          Активные ({activeDeals.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('history')}
+          className={`pb-2 text-sm font-medium transition-colors ${tab === 'history' ? 'border-b-2 border-gold text-gold' : 'text-neutral-500 hover:text-neutral-300'}`}
+        >
+          История ({historyDeals.length})
+        </button>
+      </div>
 
       {created && (
         <div className="card mb-6 border-gold/40">
@@ -135,7 +160,9 @@ export default function GarantIndexPage() {
         ))}
         {!deals.length && (
           <div className="card text-center text-sm text-neutral-500">
-            You have no guarantee deals yet. Create one to get a private link.
+            {tab === 'active'
+              ? 'У вас нет активных сделок. Создайте новую.'
+              : 'История сделок пуста.'}
           </div>
         )}
       </div>

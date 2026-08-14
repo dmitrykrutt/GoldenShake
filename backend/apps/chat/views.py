@@ -104,6 +104,34 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessageCreateSerializer
         return MessageSerializer
 
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        # Broadcast newly created message to all WebSocket clients in the room
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            message_data = response.data
+            room_id = message_data.get("room")
+            if room_id:
+                channel_layer = get_channel_layer()
+                if channel_layer is not None:
+                    # Re-fetch full message for consistent serialization
+                    msg = Message.objects.select_related("sender").filter(
+                        id=message_data.get("id")
+                    ).first()
+                    if msg is not None:
+                        from apps.chat.serializers import MessageSerializer as FullSerializer
+                        serialized = FullSerializer(msg, context={"request": request}).data
+                        async_to_sync(channel_layer.group_send)(
+                            f"chat.{room_id}",
+                            {"type": "chat.message", "message": serialized},
+                        )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Failed to broadcast REST-created message")
+        return response
+
     def destroy(self, request, *args, **kwargs):
         message = self.get_object()
         for_all = request.query_params.get("for_all") == "true"
