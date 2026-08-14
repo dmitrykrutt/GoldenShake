@@ -13,3 +13,6 @@ router.register("support-tickets", views.SupportTicketViewSet, basename="support
 app_name = "chat"
 
 urlpatterns = [path("", include(router.urls))]
+urlpatterns += [
+    path("media/<path:file_path>/", views.ChatMediaViewSet.as_view({"get": "retrieve"}), name="media"),
+]

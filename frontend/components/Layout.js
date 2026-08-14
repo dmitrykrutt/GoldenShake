@@ -15,7 +15,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../lib/auth';
 import HandshakeBadge from './HandshakeBadge';
-import VerificationBadge from './VerificationBadge';
+import Username from './Username';
 
 const NAV = [
   { href: '/chats', label: 'Chats', icon: ChatBubbleLeftRightIcon },
@@ -126,8 +126,7 @@ export default function Layout({ children, title = 'GoldenShake', sidebar = true
                       )}
                       <div className="min-w-0">
                         <div className="flex items-center gap-1 truncate text-sm font-semibold text-white">
-                          {user.username}
-                          <VerificationBadge verified={user.is_verified} />
+                          <Username user={user} />
                         </div>
                         <HandshakeBadge level={user.level || 'green'} size="sm" />
                       </div>

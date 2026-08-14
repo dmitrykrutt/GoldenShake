@@ -20,6 +20,9 @@ class ChatRoom(models.Model):
     is_support = models.BooleanField(default=False)
     is_garant_chat = models.BooleanField(default=False)
     avatar = models.ImageField(upload_to="room_avatars/", blank=True, null=True)
+    deleted_for_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="deleted_chat_rooms"
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -79,6 +82,7 @@ class Message(models.Model):
         IMAGE = "image", "Image"
         VIDEO = "video", "Video"
         AUDIO = "audio", "Audio"
+        VOICE = "voice", "Voice"
         FILE = "file", "File"
         COIN_DONATION = "coin_donation", "Coin donation"
         LOCKED_FILE = "locked_file", "Locked file"
@@ -94,7 +98,7 @@ class Message(models.Model):
     )
     content = models.BinaryField(blank=True, default=b"")
     message_type = models.CharField(max_length=20, choices=Type.choices, default=Type.TEXT)
-    media = models.FileField(upload_to="chat_media/", blank=True, null=True)
+    media = models.FileField(upload_to="chat_attachments/", blank=True, null=True)
     media_meta = models.JSONField(default=dict, blank=True)
     reply_to = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="replies"

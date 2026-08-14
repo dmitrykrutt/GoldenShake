@@ -20,6 +20,7 @@ class ChatRoomAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "is_group", "is_support", "is_garant_chat", "updated_at")
     list_filter = ("is_group", "is_support", "is_garant_chat")
     inlines = [RoomMembershipInline]
+    filter_horizontal = ("deleted_for_users",)
 
 
 @admin.register(Message)

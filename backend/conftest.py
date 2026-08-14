@@ -8,6 +8,7 @@ import pytest
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings_test")
 os.environ.setdefault("DJANGO_SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
+os.environ.setdefault("ENABLE_DAPHNE", "false")
 
 
 @pytest.fixture(autouse=True)

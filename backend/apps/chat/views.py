@@ -1,5 +1,9 @@
 """REST endpoints for chat rooms, messages, pins and support tickets."""
+import mimetypes
+
+from django.http import FileResponse, Http404, HttpResponse
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -32,6 +36,7 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             ChatRoom.objects.filter(participants=self.request.user)
+            .exclude(deleted_for_users=self.request.user)
             .prefetch_related("memberships__user")
             .distinct()
             .order_by("-updated_at")
@@ -80,6 +85,11 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         room = self.get_object()
         room.memberships.filter(user=request.user).delete()
         return Response({"detail": "You left the room."})
+
+    def destroy(self, request, *args, **kwargs):
+        room = self.get_object()
+        room.deleted_for_users.add(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(tags=["chat"])
@@ -221,3 +231,49 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         if self.action == "create":
             return SupportTicketCreateSerializer
         return SupportTicketSerializer
+
+
+@extend_schema(tags=["chat"], responses={200: bytes})
+class ChatMediaViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def retrieve(self, request, file_path=None):
+        message = get_object_or_404(
+            Message.objects.filter(room__participants=request.user)
+            .exclude(deleted_for_self_users=request.user)
+            .exclude(deleted_for_all=True),
+            media=file_path,
+        )
+        if not message.media:
+            raise Http404
+        content_type = mimetypes.guess_type(message.media.name)[0] or "application/octet-stream"
+        file_size = message.media.size
+        range_header = request.headers.get("Range")
+        if not range_header:
+            response = FileResponse(message.media.open("rb"), content_type=content_type)
+            response["Accept-Ranges"] = "bytes"
+            response["Content-Length"] = str(file_size)
+            return response
+
+        units, _, range_spec = range_header.partition("=")
+        if units != "bytes" or "-" not in range_spec:
+            response = HttpResponse(status=416)
+            response["Content-Range"] = f"bytes */{file_size}"
+            return response
+        start_raw, end_raw = range_spec.split("-", 1)
+        start = int(start_raw or 0)
+        end = int(end_raw or file_size - 1)
+        end = min(end, file_size - 1)
+        if start > end or start >= file_size:
+            response = HttpResponse(status=416)
+            response["Content-Range"] = f"bytes */{file_size}"
+            return response
+        length = end - start + 1
+        with message.media.open("rb") as stream:
+            stream.seek(start)
+            data = stream.read(length)
+        response = HttpResponse(data, status=206, content_type=content_type)
+        response["Accept-Ranges"] = "bytes"
+        response["Content-Length"] = str(length)
+        response["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        return response

@@ -8,9 +8,10 @@ import {
 } from '@heroicons/react/24/outline';
 import Layout from '../components/Layout';
 import HandshakeBadge from '../components/HandshakeBadge';
-import VerificationBadge from '../components/VerificationBadge';
 import api, { apiError } from '../lib/api';
 import { useRequireAuth } from '../lib/auth';
+import Username from '../components/Username';
+import { HANDSHAKE_LEVELS, USERNAME_GRADIENTS } from '../lib/badges';
 import { THEMES } from '../lib/themes';
 
 const TABS = [
@@ -30,6 +31,8 @@ export default function SettingsPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -53,6 +56,9 @@ export default function SettingsPage() {
         bio: user.bio || '',
         phone: user.phone || '',
         theme_color: user.theme_color || 'midnight',
+        show_verified_badge: Boolean(user.show_verified_badge),
+        displayed_handshake_level: user.displayed_handshake_level || user.handshake_level || '',
+        username_gradient: user.username_gradient || 'none',
         private_profile: Boolean(user.private_profile),
         paid_messages_enabled: Boolean(user.paid_messages_enabled),
         paid_message_price: user.paid_message_price ?? 1,
@@ -83,7 +89,7 @@ export default function SettingsPage() {
         setBusy(false);
         return;
       }
-      await api.patch('/accounts/profiles/me/update/', {
+      const basePayload = {
         username: form.username,
         bio: form.bio,
         phone: form.phone || '',
@@ -94,14 +100,34 @@ export default function SettingsPage() {
         newsletter_opt_in: form.newsletter_opt_in,
         telegram_chat_id: form.telegram_chat_id || '',
         social_links: socialLinks,
-      });
+        show_verified_badge: form.show_verified_badge,
+        displayed_handshake_level: form.displayed_handshake_level,
+        username_gradient: form.username_gradient,
+      };
+      if (avatarFile) {
+        const payload = new FormData();
+        Object.entries(basePayload).forEach(([key, value]) => {
+          payload.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''));
+        });
+        payload.append('avatar', avatarFile);
+        await api.patch('/accounts/profiles/me/update/', payload, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      } else {
+        await api.patch('/accounts/profiles/me/update/', basePayload);
+      }
       await refresh();
+      setAvatarFile(null);
       setNotice('Profile updated.');
     } catch (err) {
       setError(apiError(err, 'Could not save your profile.'));
     } finally {
       setBusy(false);
     }
+
+    const levelOrder = ['green', 'green_plus', 'blue', 'blue_plus', 'purple', 'purple_plus', 'red', 'red_plus', 'gold', 'gold_plus'];
+    const userLevelIndex = Math.max(levelOrder.indexOf(user.handshake_level || 'green'), 0);
+    const achievedLevels = levelOrder.slice(0, userLevelIndex + 1);
   };
 
   const savePrefs = async (patch) => {
@@ -162,8 +188,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-3xl">Settings</h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-neutral-500">
-            @{user.username}
-            <VerificationBadge verified={user.is_verified} size={14} />
+            <Username user={user} withAt />
             <HandshakeBadge level={user.handshake_level || 'green'} size="sm" />
           </p>
         </div>
@@ -188,12 +213,127 @@ export default function SettingsPage() {
 
       {tab === 'profile' && (
         <form onSubmit={saveProfile} className="card space-y-4">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => document.getElementById('avatar-upload')?.click()}
+              className="relative overflow-hidden rounded-full ring-2 ring-gold/40"
+            >
+              {avatarFile || user.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarPreview || user.avatar}
+                  alt={user.username}
+                  className="h-20 w-20 object-cover"
+                />
+              ) : (
+                <div className="grid h-20 w-20 place-items-center bg-graphite text-2xl text-gold">
+                  {user.username.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+            </button>
+            <div>
+              <p className="text-sm text-white">Нажмите на аватар, чтобы загрузить фото</p>
+              <p className="text-xs text-neutral-500">Только изображения, до 5 МБ</p>
+            </div>
+            <input
+              id="avatar-upload"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                if (!file.type.startsWith('image/')) {
+                  setError('Можно загрузить только изображение.');
+                  return;
+                }
+                if (file.size > 5 * 1024 * 1024) {
+                  setError('Максимальный размер аватара — 5 МБ.');
+                  return;
+                }
+                setAvatarFile(file);
+                setAvatarPreview(URL.createObjectURL(file));
+              }}
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="username">
                 Username
               </label>
               <input id="username" className="input" value={form.username} onChange={set('username')} />
+            </div>
+            <div>
+              <label className="label">Значки и оформление</label>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                <div className="mb-4">
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-neutral-500">Превью</p>
+                  <div className="text-lg">
+                    <Username
+                      user={{
+                        ...user,
+                        username: form.username,
+                        is_verified: user.is_verified,
+                        show_verified_badge: form.show_verified_badge,
+                        displayed_handshake_level: form.displayed_handshake_level,
+                        username_gradient: form.username_gradient,
+                      }}
+                      withAt
+                    />
+                  </div>
+                </div>
+                {user.is_verified && (
+                  <label className="flex items-center gap-3 text-sm text-neutral-300">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[#C9A84C]"
+                      checked={form.show_verified_badge}
+                      onChange={set('show_verified_badge')}
+                    />
+                    Значок верификации
+                  </label>
+                )}
+                <div className="mt-4">
+                  <label className="label" htmlFor="handshake-level">
+                    Значок уровня
+                  </label>
+                  <select
+                    id="handshake-level"
+                    className="input"
+                    value={form.displayed_handshake_level}
+                    onChange={set('displayed_handshake_level')}
+                  >
+                    <option value="">Не показывать</option>
+                    {achievedLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {HANDSHAKE_LEVELS[level].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-4">
+                  <label className="label">Цвет имени</label>
+                  <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
+                    {USERNAME_GRADIENTS.map((gradient) => (
+                      <button
+                        key={gradient.id}
+                        type="button"
+                        onClick={() => setForm((prev) => ({ ...prev, username_gradient: gradient.id }))}
+                        className={`min-w-[96px] rounded-2xl border p-3 text-left ${
+                          form.username_gradient === gradient.id ? 'border-gold' : 'border-white/10'
+                        }`}
+                      >
+                        <div
+                          className="mb-2 h-8 rounded-xl"
+                          style={{ background: gradient.value === 'none' ? '#525252' : gradient.value }}
+                        />
+                        <p className="text-xs text-neutral-300">{gradient.name}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
             <div>
               <label className="label" htmlFor="phone">
