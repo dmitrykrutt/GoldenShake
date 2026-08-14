@@ -53,6 +53,7 @@ export default function CallModal({
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -63,6 +64,9 @@ export default function CallModal({
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+    }
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
 
@@ -107,6 +111,10 @@ export default function CallModal({
             {/* dark overlay */}
             <div className="absolute inset-0 bg-black/40" />
           </div>
+
+          {/* Hidden audio element for audio-only calls */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
           {/* Top bar */}
           <div className="relative z-10 flex w-full items-center justify-between px-5 pt-6">

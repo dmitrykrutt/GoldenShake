@@ -28,6 +28,7 @@ export function useWebRTC(chatId, userId) {
   const timeoutTimerRef = useRef(null);
   const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
   const pendingCandidatesRef = useRef([]);
+  const loggedRef = useRef(false);
 
   callInfoRef.current = callInfo;
 
@@ -80,11 +81,14 @@ export function useWebRTC(chatId, userId) {
 
   const logCall = useCallback(async (callId, callType) => {
     if (!callId) return;
+    if (loggedRef.current) return;
+    loggedRef.current = true;
     const durationSec = connectedAtRef.current
       ? Math.round((Date.now() - connectedAtRef.current) / 1000)
       : 0;
     try {
       await api.post('/calls/logs/', {
+        call_id: callId,
         chat_id: chatId,
         duration_seconds: durationSec,
         call_type: callType || callTypeRef.current || 'audio',
@@ -105,6 +109,7 @@ export function useWebRTC(chatId, userId) {
       cleanupPc();
       setDuration(0);
       connectedAtRef.current = null;
+      loggedRef.current = false;
       if (reason !== 'silent') {
         setCallStatus('ended');
         setTimeout(() => setCallStatus('idle'), 2000);
@@ -130,12 +135,15 @@ export function useWebRTC(chatId, userId) {
     };
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        if (!connectedAtRef.current) {
+          connectedAtRef.current = Date.now();
+          stopTimeoutTimer();
+          stopDurationTimer();
+          durationTimerRef.current = setInterval(() => {
+            setDuration(Math.round((Date.now() - connectedAtRef.current) / 1000));
+          }, 1000);
+        }
         setCallStatus('active');
-        connectedAtRef.current = Date.now();
-        stopTimeoutTimer();
-        durationTimerRef.current = setInterval(() => {
-          setDuration(Math.round((Date.now() - connectedAtRef.current) / 1000));
-        }, 1000);
       }
       if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
         const info = callInfoRef.current;
@@ -152,7 +160,7 @@ export function useWebRTC(chatId, userId) {
     pendingCandidatesRef.current = [];
 
     return pc;
-  }, [logCall, stopTimeoutTimer, teardown]);
+  }, [logCall, stopDurationTimer, stopTimeoutTimer, teardown]);
 
   const getMedia = useCallback(async (withVideo) => {
     try {
