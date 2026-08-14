@@ -261,8 +261,13 @@ class ChatMediaViewSet(viewsets.ViewSet):
             response["Content-Range"] = f"bytes */{file_size}"
             return response
         start_raw, end_raw = range_spec.split("-", 1)
-        start = int(start_raw or 0)
-        end = int(end_raw or file_size - 1)
+        try:
+            start = int(start_raw or 0)
+            end = int(end_raw or file_size - 1)
+        except ValueError:
+            response = HttpResponse(status=416)
+            response["Content-Range"] = f"bytes */{file_size}"
+            return response
         end = min(end, file_size - 1)
         if start > end or start >= file_size:
             response = HttpResponse(status=416)

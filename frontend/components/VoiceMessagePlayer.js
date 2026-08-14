@@ -29,8 +29,12 @@ export default function VoiceMessagePlayer({ src, duration = 0 }) {
       setPlaying(false);
       return;
     }
-    await audio.play();
-    setPlaying(true);
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+    }
   };
 
   const cycleSpeed = () => {

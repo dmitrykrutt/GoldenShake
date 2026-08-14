@@ -33,6 +33,9 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
+  const levelOrder = ['green', 'green_plus', 'blue', 'blue_plus', 'purple', 'purple_plus', 'red', 'red_plus', 'gold', 'gold_plus'];
+  const userLevelIndex = Math.max(levelOrder.indexOf(user?.handshake_level || 'green'), 0);
+  const achievedLevels = levelOrder.slice(0, userLevelIndex + 1);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +72,10 @@ export default function SettingsPage() {
       load();
     }
   }, [user, form, load]);
+
+  useEffect(() => () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+  }, [avatarPreview]);
 
   const set = (key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -125,9 +132,6 @@ export default function SettingsPage() {
       setBusy(false);
     }
 
-    const levelOrder = ['green', 'green_plus', 'blue', 'blue_plus', 'purple', 'purple_plus', 'red', 'red_plus', 'gold', 'gold_plus'];
-    const userLevelIndex = Math.max(levelOrder.indexOf(user.handshake_level || 'green'), 0);
-    const achievedLevels = levelOrder.slice(0, userLevelIndex + 1);
   };
 
   const savePrefs = async (patch) => {
@@ -252,6 +256,7 @@ export default function SettingsPage() {
                   setError('Максимальный размер аватара — 5 МБ.');
                   return;
                 }
+                if (avatarPreview) URL.revokeObjectURL(avatarPreview);
                 setAvatarFile(file);
                 setAvatarPreview(URL.createObjectURL(file));
               }}

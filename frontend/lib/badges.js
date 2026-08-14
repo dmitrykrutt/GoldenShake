@@ -1,7 +1,6 @@
 export const HANDSHAKE_LEVELS = {
   green: { emoji: '🤝', color: '#4CAF50', label: 'Green' },
   green_plus: { emoji: '🤝', color: '#8BC34A', label: 'Green Pro' },
-  'green-pro': { emoji: '🤝', color: '#8BC34A', label: 'Green Pro' },
   blue: { emoji: '🤝', color: '#2196F3', label: 'Blue' },
   blue_plus: { emoji: '🤝', color: '#2196F3', label: 'Blue+' },
   purple: { emoji: '🤝', color: '#9C27B0', label: 'Purple' },

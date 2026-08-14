@@ -130,7 +130,12 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
         call_id = content.get("call_id") or self.call_id
         if call_id:
             await self.end_call(call_id, CallLog.Status.DECLINED)
-            await self.send_system_message(call_id, "📵 Звонок отклонён")
+            payload = await self.build_system_message(call_id, "📵 Звонок отклонён")
+            if payload:
+                await self.channel_layer.group_send(
+                    f"chat.{self.room_id}",
+                    {"type": "chat.message", "message": payload},
+                )
         await self.channel_layer.group_send(
             self.group_name,
             {"type": "call.ended", "call_id": call_id, "reason": "declined"},
@@ -144,10 +149,15 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
             status = CallLog.Status.MISSED if reason == "no_answer" else CallLog.Status.ENDED
             call = await self.end_call(call_id, status)
             if reason == "no_answer":
-                await self.send_system_message(call_id, "📵 Пропущенный звонок")
+                payload = await self.build_system_message(call_id, "📵 Пропущенный звонок")
             else:
                 duration = self.format_duration(call.duration_seconds if call else 0)
-                await self.send_system_message(call_id, f"📞 Звонок завершён · {duration}")
+                payload = await self.build_system_message(call_id, f"📞 Звонок завершён · {duration}")
+            if payload:
+                await self.channel_layer.group_send(
+                    f"chat.{self.room_id}",
+                    {"type": "chat.message", "message": payload},
+                )
         await self.channel_layer.group_send(
             self.group_name,
             {"type": "call.ended", "call_id": call_id, "reason": reason},
@@ -220,21 +230,14 @@ class CallConsumer(AsyncJsonWebsocketConsumer):
         return servers or [{"urls": "stun:stun.l.google.com:19302"}]
 
     @database_sync_to_async
-    def send_system_message(self, call_id: str, text: str):
+    def build_system_message(self, call_id: str, text: str):
         call = CallLog.objects.select_related("room", "caller").filter(id=call_id).first()
         if call is None:
             return None
         message = Message(room=call.room, sender=call.caller, message_type=Message.Type.SYSTEM)
         message.set_plaintext(text)
         message.save()
-        serialized = MessageSerializer(message).data
-        from asgiref.sync import async_to_sync
-
-        async_to_sync(self.channel_layer.group_send)(
-            f"chat.{call.room_id}",
-            {"type": "chat.message", "message": serialized},
-        )
-        return message
+        return MessageSerializer(message).data
 
     @staticmethod
     def format_duration(total_seconds: int) -> str:

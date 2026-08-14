@@ -33,7 +33,12 @@ export default function useVoiceRecorder() {
         latency: 0.01,
       },
     });
-    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    const mimeType = MediaRecorder.isTypeSupported?.('audio/webm')
+      ? 'audio/webm'
+      : MediaRecorder.isTypeSupported?.('audio/mp4')
+        ? 'audio/mp4'
+        : '';
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     streamRef.current = stream;
     mediaRecorderRef.current = recorder;
     chunksRef.current = [];
@@ -43,12 +48,13 @@ export default function useVoiceRecorder() {
       if (event.data.size) chunksRef.current.push(event.data);
     };
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      const blob = new Blob(chunksRef.current, { type: mimeType || chunksRef.current[0]?.type || 'audio/webm' });
+      const extension = mimeType === 'audio/mp4' ? 'm4a' : 'webm';
       setPreview({
         blob,
         url: URL.createObjectURL(blob),
         duration: durationRef.current,
-        file: new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' }),
+        file: new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType || blob.type }),
       });
       cleanupStream();
     };
