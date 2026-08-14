@@ -39,3 +39,5 @@ firebase-credentials.json
 backend/venv/
 frontend/.next/
 frontend/node_modules/
+celerybeat-schedule*
+*.db
