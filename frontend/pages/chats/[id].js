@@ -15,9 +15,11 @@ import Layout from '../../components/Layout';
 import MessageBubble from '../../components/MessageBubble';
 import CoinDonation from '../../components/CoinDonation';
 import VerificationBadge from '../../components/VerificationBadge';
+import CallModal from '../../components/CallModal';
 import api, { apiError, tokens } from '../../lib/api';
 import { connect } from '../../lib/ws';
 import { useRequireAuth } from '../../lib/auth';
+import { useWebRTC } from '../../hooks/useWebRTC';
 
 export default function ChatRoomPage() {
   const router = useRouter();
@@ -41,6 +43,23 @@ export default function ChatRoomPage() {
   const typingTimer = useRef(null);
 
   const peer = room?.memberships?.find((m) => m.user?.id !== user?.id)?.user;
+
+  const {
+    callStatus,
+    callInfo,
+    localStream,
+    remoteStream,
+    isMuted,
+    isVideoOff,
+    duration,
+    permissionError,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMute,
+    toggleVideo,
+  } = useWebRTC(id, user?.id ? String(user.id) : null);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -223,22 +242,27 @@ export default function ChatRoomPage() {
     }
   };
 
-  const [callToast, setCallToast] = useState('');
-
   const pinChat = () => socketRef.current?.send({ action: 'pin_chat', pinned: !room?.is_pinned });
-
-  const startCall = () => {
-    setCallToast('Звонки скоро будут доступны 🎧');
-    setTimeout(() => setCallToast(''), 3500);
-  };
 
   return (
     <Layout title={room?.display_title || 'Chat'} fullBleed>
-      {callToast && (
-        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-graphite px-5 py-3 text-sm shadow-gold">
-          {callToast}
-        </div>
-      )}
+      <CallModal
+        callStatus={callStatus}
+        callInfo={callInfo}
+        localStream={localStream}
+        remoteStream={remoteStream}
+        isMuted={isMuted}
+        isVideoOff={isVideoOff}
+        duration={duration}
+        permissionError={permissionError}
+        peerName={peer?.full_name || peer?.username || callInfo?.callerName}
+        peerAvatar={peer?.avatar}
+        onAccept={acceptCall}
+        onDecline={declineCall}
+        onEnd={endCall}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+      />
       <div className="flex h-[calc(100vh-0px)] flex-col lg:h-screen">
         <header className="flex items-center gap-3 border-b border-white/5 bg-black/70 px-4 py-3 backdrop-blur-xl">
           <Link href="/chats" className="text-neutral-400 hover:text-gold">
@@ -264,7 +288,7 @@ export default function ChatRoomPage() {
           <button
             type="button"
             aria-label="Audio call"
-            onClick={() => startCall()}
+            onClick={() => startCall({ video: false })}
             className="rounded-lg p-2 text-neutral-400 hover:text-gold"
           >
             <PhoneIcon className="h-5 w-5" />
@@ -272,7 +296,7 @@ export default function ChatRoomPage() {
           <button
             type="button"
             aria-label="Video call"
-            onClick={() => startCall()}
+            onClick={() => startCall({ video: true })}
             className="rounded-lg p-2 text-neutral-400 hover:text-gold"
           >
             <VideoCameraIcon className="h-5 w-5" />
