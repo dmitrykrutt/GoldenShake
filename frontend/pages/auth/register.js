@@ -135,7 +135,7 @@ export default function RegisterPage() {
                 </div>
                 {inviteState?.valid && (
                   <p className="mt-3 text-xs text-green-400">
-                    Valid invite from @{inviteState.inviter} · {inviteState.uses_left} осталось использований
+                    Действительное приглашение от @{inviteState.inviter} · {inviteState.uses_left} осталось использований
                   </p>
                 )}
                 <button

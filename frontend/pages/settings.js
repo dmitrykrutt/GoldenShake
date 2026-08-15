@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   BellIcon,
   ClipboardDocumentIcon,
+  LanguageIcon,
   ShieldCheckIcon,
   TrashIcon,
   UserIcon,
@@ -13,16 +14,19 @@ import { useRequireAuth } from '../lib/auth';
 import Username from '../components/Username';
 import { HANDSHAKE_LEVELS, USERNAME_GRADIENTS } from '../lib/badges';
 import { THEMES } from '../lib/themes';
+import { useI18n } from '../lib/i18n';
 
 const TABS = [
   { key: 'profile', label: 'Профиль', icon: UserIcon },
   { key: 'security', label: 'Безопасность', icon: ShieldCheckIcon },
   { key: 'notifications', label: 'Уведомления', icon: BellIcon },
   { key: 'privacy', label: 'Приватность', icon: TrashIcon },
+  { key: 'language', label: 'Язык', icon: LanguageIcon },
 ];
 
 export default function SettingsPage() {
   const { user, refresh } = useRequireAuth();
+  const { lang, switchLang } = useI18n();
   const [tab, setTab] = useState('profile');
   const [form, setForm] = useState(null);
   const [invites, setInvites] = useState([]);
@@ -578,6 +582,35 @@ export default function SettingsPage() {
               Удаление аккаунта производится через поддержку, чтобы активные сделки через гарант могли быть завершены.
               Откройте тикет в поддержку из любого чата.
             </p>
+          </div>
+        </div>
+      )}
+      {tab === 'language' && (
+        <div className="card space-y-5">
+          <h2 className="text-xl">Язык интерфейса</h2>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="lang"
+                value="ru"
+                checked={lang === 'ru'}
+                onChange={() => switchLang('ru')}
+                className="accent-gold"
+              />
+              <span>Русский</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="lang"
+                value="en"
+                checked={lang === 'en'}
+                onChange={() => switchLang('en')}
+                className="accent-gold"
+              />
+              <span>English</span>
+            </label>
           </div>
         </div>
       )}
