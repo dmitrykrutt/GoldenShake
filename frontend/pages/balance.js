@@ -1,5 +1,293 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownIcon, ArrowsRightLeftIcon, ArrowUpIcon } from '@heroicons/react/24/outline';
+import { ArrowsRightLeftIcon, ArrowUpIcon } from '@heroicons/react/24/outline';
+import Layout from '../components/Layout';
+import HandshakeBadge from '../components/HandshakeBadge';
+import api, { apiError } from '../lib/api';
+import { useRequireAuth } from '../lib/auth';
+import { EXCHANGE_RATES, RARITIES, RARITY_META, formatDateTime } from '../lib/constants';
+
+export default function BalancePage() {
+  const { user } = useRequireAuth();
+  const [balance, setBalance] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [fiatBalances, setFiatBalances] = useState([]);
+  const [fiatTransactions, setFiatTransactions] = useState([]);
+  const [target, setTarget] = useState('blue');
+  const [count, setCount] = useState(1);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawCurrency, setWithdrawCurrency] = useState('USDT');
+  const [withdrawNetwork, setWithdrawNetwork] = useState('TRC20');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawWallet, setWithdrawWallet] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [balanceRes, txRes, fiatRes, fiatTxRes] = await Promise.all([
+        api.get('/coins/balance/'),
+        api.get('/coins/transactions/'),
+        api.get('/coins/fiat-balance/').catch(() => ({ data: [] })),
+        api.get('/coins/fiat-transactions/').catch(() => ({ data: [] })),
+      ]);
+      setBalance(balanceRes.data);
+      setTransactions(Array.isArray(txRes.data) ? txRes.data : txRes.data.results || []);
+      setFiatBalances(Array.isArray(fiatRes.data) ? fiatRes.data : []);
+      setFiatTransactions(Array.isArray(fiatTxRes.data) ? fiatTxRes.data : []);
+    } catch (err) {
+      setError(apiError(err, 'Не удалось загрузить баланс.'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) load();
+  }, [user, load]);
+
+  const doExchange = async (event) => {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    setBusy(true);
+    try {
+      const { data } = await api.post('/coins/exchange/', { target_rarity: target, count: Number(count) });
+      setNotice(`Создано ${data.minted ?? count} ${RARITY_META[target].label} рукопожатий.`);
+      await load();
+    } catch (err) {
+      setError(apiError(err, 'Обмен не выполнен.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doWithdraw = async (event) => {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const network = withdrawCurrency === 'TON' ? 'TON' : withdrawNetwork;
+      await api.post('/coins/withdraw/', {
+        amount: withdrawAmount,
+        currency: withdrawCurrency,
+        network,
+        wallet: withdrawWallet,
+      });
+      setNotice('Заявка на вывод принята. Будет обработана в течение 24 часов.');
+      setShowWithdraw(false);
+      setWithdrawAmount('');
+      setWithdrawWallet('');
+      await load();
+    } catch (err) {
+      setError(apiError(err, 'Не удалось отправить заявку на вывод.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const balances = balance?.balances || {};
+  const rate = EXCHANGE_RATES[target];
+
+  return (
+    <Layout title="Баланс">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">Баланс рукопожатий</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Зарабатывайте рукопожатия, приглашая участников и участвуя в сделках.
+          </p>
+        </div>
+        {balance?.level && <HandshakeBadge level={balance.level} size="lg" />}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {RARITIES.map((rarity) => {
+          const meta = RARITY_META[rarity];
+          return (
+            <div key={rarity} className="rounded-2xl border p-5 text-center"
+              style={{ borderColor: `${meta.color}44`, backgroundColor: `${meta.color}0F` }}>
+              <span className="text-3xl">🤝</span>
+              <p className="mt-2 font-display text-3xl" style={{ color: meta.color }}>{balances[rarity] ?? 0}</p>
+              <p className="mt-1 text-xs text-neutral-500">{meta.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {balance?.next_level && (
+        <div className="card mt-6">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-neutral-400">Следующий уровень: <strong className="text-gold">{balance.next_level}</strong></span>
+            <span className="text-neutral-500">Ещё {balance.needed} {balance.next_rarity} рукопожатий</span>
+          </div>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-graphite-lighter">
+            <div className="h-full rounded-full bg-gold-gradient transition-all"
+              style={{ width: `${Math.min(100, ((balances[balance.next_rarity] || 0) / Math.max(1, (balances[balance.next_rarity] || 0) + balance.needed)) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
+      <div className="card mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl">Фиатный баланс</h2>
+          <button type="button" onClick={() => setShowWithdraw(true)} className="btn-dark py-2 text-xs">
+            <ArrowUpIcon className="h-4 w-4" /> Вывести
+          </button>
+        </div>
+        {fiatBalances.length === 0 ? (
+          <p className="text-sm text-neutral-500">Нет фиатного баланса. Средства начисляются после завершения сделок через гарант.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {fiatBalances.map((fb) => (
+              <div key={fb.currency} className="rounded-xl border border-white/10 p-4">
+                <p className="text-xs text-neutral-500">{fb.currency}</p>
+                <p className="mt-1 text-2xl font-semibold text-gold">{Number(fb.amount).toFixed(2)}</p>
+                <button type="button" onClick={() => { setWithdrawCurrency(fb.currency); setShowWithdraw(true); }}
+                  className="btn-dark mt-3 w-full py-1.5 text-xs"><ArrowUpIcon className="h-3 w-3" /> Вывести</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {fiatTransactions.length > 0 && (
+        <div className="card mt-6">
+          <h2 className="mb-4 text-xl">История транзакций</h2>
+          <ul className="divide-y divide-white/5">
+            {fiatTransactions.slice(0, 15).map((tx) => {
+              const txLabels = {
+                withdrawal: 'Вывод',
+                deposit: 'Пополнение',
+                deal_income: 'Доход со сделки',
+                deal_refund: 'Возврат по сделке',
+              };
+              return (
+                <li key={tx.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm capitalize text-neutral-300">{txLabels[tx.tx_type] || tx.tx_type}</p>
+                    {tx.description && <p className="text-[11px] text-neutral-600">{tx.description}</p>}
+                  </div>
+                  <span className={`shrink-0 text-sm font-semibold ${tx.tx_type === 'withdrawal' ? 'text-red-400' : 'text-green-400'}`}>
+                    {tx.tx_type === 'withdrawal' ? '−' : '+'}{Number(tx.amount).toFixed(2)} {tx.currency}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        <form onSubmit={doExchange} className="card">
+          <h2 className="flex items-center gap-2 text-xl">
+            <ArrowsRightLeftIcon className="h-5 w-5 text-gold" /> Ковка рукопожатий
+          </h2>
+          <p className="mt-2 text-sm text-neutral-400">Сожгите рукопожатия низкого уровня, чтобы создать более редкие.</p>
+          <div className="mt-5">
+            <label className="label" htmlFor="target">Целевой уровень</label>
+            <select id="target" className="input" value={target} onChange={(e) => setTarget(e.target.value)}>
+              {Object.keys(EXCHANGE_RATES).map((key) => (
+                <option key={key} value={key}>{RARITY_META[key].label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="mt-4">
+            <label className="label" htmlFor="count">Количество</label>
+            <input id="count" type="number" min="1" className="input" value={count} onChange={(e) => setCount(e.target.value)} />
+          </div>
+          {rate && (
+            <p className="mt-4 rounded-xl bg-black/40 p-3 text-xs text-neutral-400">
+              Стоимость: <strong style={{ color: RARITY_META[rate.from].color }}>{rate.amount * (Number(count) || 1)} {RARITY_META[rate.from].label}</strong> → {count || 1} {RARITY_META[target].label}. У вас: {balances[rate.from] ?? 0}.
+            </p>
+          )}
+          {notice && <p className="mt-3 text-xs text-green-400">{notice}</p>}
+          {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+          <button type="submit" disabled={busy} className="btn-primary mt-5 w-full">{busy ? 'Обработка…' : 'Обменять'}</button>
+        </form>
+
+        <div className="card">
+          <h2 className="text-xl">Последние операции</h2>
+          <ul className="mt-4 divide-y divide-white/5">
+            {transactions.slice(0, 12).map((tx) => {
+              const incoming = tx.to_username === user?.username;
+              const meta = RARITY_META[tx.rarity] || RARITY_META.green;
+              const typeLabels = {
+                invite_reward: 'Награда за приглашение',
+                donation: 'Донат',
+                exchange_burn: 'Сожжение',
+                exchange_mint: 'Создание',
+                paid_message: 'Платное сообщение',
+                file_unlock: 'Разблокировка файла',
+                admin_grant: 'Начисление администратором',
+                activity: 'Награда за активность',
+              };
+              return (
+                <li key={tx.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm">
+                      <span className="text-neutral-300">{typeLabels[tx.transaction_type] || tx.transaction_type}</span>
+                      {tx.from_username && incoming && <span className="text-neutral-500"> от @{tx.from_username}</span>}
+                      {tx.to_username && !incoming && <span className="text-neutral-500"> для @{tx.to_username}</span>}
+                    </p>
+                    <p className="text-[11px] text-neutral-600">{formatDateTime(tx.created_at)}{tx.memo ? ` · ${tx.memo}` : ''}</p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold" style={{ color: incoming ? meta.color : '#8A8A8E' }}>
+                    {incoming ? '+' : '−'}{tx.amount} {meta.label}
+                  </span>
+                </li>
+              );
+            })}
+            {!transactions.length && (
+              <li className="py-8 text-center text-sm text-neutral-600">Операций пока нет.</li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      {showWithdraw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <form onSubmit={doWithdraw} className="w-full max-w-md rounded-2xl glass-gold p-6">
+            <h2 className="font-display text-xl">Вывести средства</h2>
+            <p className="mt-1 text-xs text-neutral-400">Заявка будет обработана в течение 24 часов.</p>
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="label" htmlFor="w-currency">Валюта</label>
+                <select id="w-currency" className="input" value={withdrawCurrency} onChange={(e) => {
+                  setWithdrawCurrency(e.target.value);
+                  setWithdrawNetwork(e.target.value === 'TON' ? 'TON' : 'TRC20');
+                }}>
+                  <option value="USDT">USDT</option>
+                  <option value="TON">TON</option>
+                </select>
+              </div>
+              {withdrawCurrency === 'USDT' && (
+                <div>
+                  <label className="label" htmlFor="w-network">Сеть</label>
+                  <select id="w-network" className="input" value={withdrawNetwork} onChange={(e) => setWithdrawNetwork(e.target.value)}>
+                    <option value="TRC20">TRC20 (TRON)</option>
+                    <option value="TON">TON</option>
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="label" htmlFor="w-amount">Сумма</label>
+                <input id="w-amount" type="number" step="0.01" min="0.01" required className="input" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} />
+              </div>
+              <div>
+                <label className="label" htmlFor="w-wallet">Адрес кошелька</label>
+                <input id="w-wallet" type="text" required className="input font-mono" value={withdrawWallet} onChange={(e) => setWithdrawWallet(e.target.value)} placeholder={withdrawCurrency === 'TON' || withdrawNetwork === 'TON' ? 'TON адрес' : 'TRC20 адрес'} />
+              </div>
+            </div>
+            {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+            <div className="mt-5 flex gap-3">
+              <button type="button" onClick={() => { setShowWithdraw(false); setError(''); }} className="btn-dark flex-1">Отмена</button>
+              <button type="submit" disabled={busy} className="btn-primary flex-1">{busy ? 'Отправка…' : 'Вывести'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </Layout>
+  );
+}
 import Layout from '../components/Layout';
 import HandshakeBadge from '../components/HandshakeBadge';
 import api, { apiError } from '../lib/api';

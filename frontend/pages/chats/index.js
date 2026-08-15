@@ -81,17 +81,27 @@ export default function ChatsPage() {
     }
   };
 
+  const handleBlockUser = async (room) => {
+    const peer = room.memberships?.find((member) => String(member.user?.id) !== String(user?.id))?.user;
+    if (!peer?.username) return;
+    try {
+      await api.post(`/accounts/profiles/block/${encodeURIComponent(peer.username)}/`);
+    } catch (err) {
+      setError(apiError(err, 'Не удалось заблокировать пользователя.'));
+    }
+  };
+
   return (
-    <Layout title="Chats">
+    <Layout title="Чаты">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl">Chats</h1>
+          <h1 className="text-3xl">Чаты</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            All conversations are end-to-end encrypted.
+            Все переписки зашифрованы.
           </p>
         </div>
         <button type="button" onClick={() => setCreating(true)} className="btn-primary">
-          <PlusIcon className="h-4 w-4" /> New chat
+          <PlusIcon className="h-4 w-4" /> Новый чат
         </button>
       </div>
 
@@ -99,7 +109,7 @@ export default function ChatsPage() {
         <MagnifyingGlassIcon className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-600" />
         <input
           className="input pl-11"
-          placeholder="Search conversations"
+          placeholder="Поиск переписок"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -118,15 +128,16 @@ export default function ChatsPage() {
               peer: room.memberships?.find((member) => String(member.user?.id) !== String(user?.id))?.user,
             })
           }
+          onBlock={handleBlockUser}
         />
       </div>
 
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <form onSubmit={createChat} className="w-full max-w-sm rounded-2xl glass-gold p-6">
-            <h2 className="font-display text-xl">Start a conversation</h2>
+            <h2 className="font-display text-xl">Начать переписку</h2>
             <label className="label mt-5" htmlFor="new-username">
-              Username
+              Имя пользователя
             </label>
             <input
               id="new-username"
@@ -145,10 +156,10 @@ export default function ChatsPage() {
                 className="btn-dark flex-1"
                 onClick={() => { setCreating(false); setCreateError(''); }}
               >
-                Cancel
+                Отмена
               </button>
               <button type="submit" className="btn-primary flex-1">
-                Start
+                Начать
               </button>
             </div>
           </form>
@@ -160,9 +171,8 @@ export default function ChatsPage() {
           <div className="w-full max-w-md rounded-2xl glass-gold p-6">
             <h2 className="font-display text-xl">Удалить чат?</h2>
             <p className="mt-3 text-sm text-neutral-300">
-              Вы действительно хотите удалить чат с @{deleteTarget.peer?.username || deleteTarget.display_title}?
+              Вы уверены что хотите удалить чат с @{deleteTarget.peer?.username || deleteTarget.display_title}? Это действие нельзя отменить.
             </p>
-            <p className="mt-1 text-sm text-neutral-500">Это действие нельзя отменить.</p>
             <label className="mt-5 flex items-center gap-3 text-sm text-neutral-300">
               <input
                 type="checkbox"

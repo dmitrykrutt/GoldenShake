@@ -1,6 +1,10 @@
 """REST endpoints for the handshake coin economy."""
+import logging
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
+
+logger = logging.getLogger(__name__)
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -233,6 +237,7 @@ class WithdrawView(APIView):
         serializer.is_valid(raise_exception=True)
         amount = serializer.validated_data["amount"]
         currency = serializer.validated_data["currency"].upper()
+        network = serializer.validated_data.get("network", "TON")
         wallet = serializer.validated_data["wallet"]
 
         from django.db import transaction as db_transaction
@@ -244,7 +249,7 @@ class WithdrawView(APIView):
             available = balance.amount if balance else 0
             if available < amount:
                 return Response(
-                    {"detail": f"Insufficient balance: {available} {currency} available."},
+                    {"detail": f"Недостаточно средств: доступно {available} {currency}."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if balance:
@@ -253,6 +258,7 @@ class WithdrawView(APIView):
             withdrawal = WithdrawalRequest.objects.create(
                 user=request.user,
                 currency=currency,
+                network=network,
                 amount=amount,
                 wallet_address=wallet,
             )
@@ -262,12 +268,16 @@ class WithdrawView(APIView):
                 currency=currency,
                 amount=amount,
                 tx_type=FiatTransaction.WITHDRAWAL,
-                description=f"Withdrawal to {wallet}",
+                description=f"Вывод на {wallet} (сеть: {network})",
             )
 
+        logger.info(
+            "Withdrawal request #%s: %s %s (network: %s) for user %s to %s",
+            withdrawal.id, amount, currency, network, request.user.username, wallet,
+        )
         return Response(
             {
-                "detail": "Withdrawal request submitted and will be processed within 24 hours.",
+                "detail": "Заявка на вывод принята и будет обработана в течение 24 часов.",
                 "id": withdrawal.id,
                 "status": withdrawal.status,
             },

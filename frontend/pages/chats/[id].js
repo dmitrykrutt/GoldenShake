@@ -202,6 +202,10 @@ export default function ChatRoomPage() {
 
   const handleDraft = (event) => {
     setDraft(event.target.value);
+    // Auto-resize textarea
+    const el = event.target;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`;
     notifyTyping(true);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => notifyTyping(false), 1800);
@@ -327,7 +331,7 @@ export default function ChatRoomPage() {
   const pinChat = () => socketRef.current?.send({ action: 'pin_chat', pinned: !room?.is_pinned });
 
   return (
-    <Layout title={room?.display_title || 'Chat'} fullBleed>
+    <Layout title={room?.display_title || 'Чат'} fullBleed>
       <CallModal
         callStatus={callStatus}
         callInfo={callInfo}
@@ -345,8 +349,8 @@ export default function ChatRoomPage() {
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
       />
-      <div className="flex h-[calc(100vh-0px)] flex-col lg:h-screen">
-        <header className="flex items-center gap-3 border-b border-white/5 bg-black/70 px-4 py-3 backdrop-blur-xl">
+      <div className="chat-page">
+        <header className="chat-header flex items-center gap-3 border-b border-white/5 bg-black/70 px-4 py-3 backdrop-blur-xl">
           <Link href="/chats" className="text-neutral-400 hover:text-gold">
             <ArrowLeftIcon className="h-5 w-5" />
           </Link>
@@ -408,7 +412,7 @@ export default function ChatRoomPage() {
           </button>
         </header>
 
-        <div className="flex-1 space-y-3 overflow-y-auto p-4 scrollbar-gold">
+        <div className="chat-messages space-y-3 p-4 scrollbar-gold">
           {messages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -424,6 +428,7 @@ export default function ChatRoomPage() {
           <div ref={bottomRef} />
         </div>
 
+        <div className="chat-input-area">
         {error && (
           <p className="border-t border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-red-400">
             {error}
@@ -436,7 +441,7 @@ export default function ChatRoomPage() {
               Ответ для <strong className="text-gold">{replyTo.sender?.username}</strong>:{' '}
               {replyTo.content}
             </span>
-            <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply">
+            <button type="button" onClick={() => setReplyTo(null)} aria-label="Отменить ответ">
               <XMarkIcon className="h-4 w-4 text-neutral-500 hover:text-gold" />
             </button>
           </div>
@@ -547,7 +552,8 @@ export default function ChatRoomPage() {
             <PaperAirplaneIcon className="h-5 w-5" />
           </button>
         </form>
-      </div>
+        </div>{/* end chat-input-area */}
+      </div>{/* end chat-page */}
 
       {showDonation && peer && (
         <CoinDonation
