@@ -33,9 +33,20 @@ export default function ProfilePage() {
   const [error, setError] = useState('');
   const [blocked, setBlocked] = useState(false);
   const [attachFiles, setAttachFiles] = useState([]);
+  const [attachPreviews, setAttachPreviews] = useState([]);
   const [attachError, setAttachError] = useState('');
   const [lightboxItems, setLightboxItems] = useState(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const urls = attachFiles.map((f) =>
+      f.type.startsWith('image/') || f.type.startsWith('video/') ? URL.createObjectURL(f) : null
+    );
+    setAttachPreviews(urls);
+    return () => {
+      urls.forEach((u) => { if (u) URL.revokeObjectURL(u); });
+    };
+  }, [attachFiles]);
 
   const isSelf = user && profile && user.username === profile.username;
 
@@ -283,14 +294,14 @@ export default function ProfilePage() {
               {attachFiles.map((f, i) => {
                 const isImage = f.type.startsWith('image/');
                 const isVideo = f.type.startsWith('video/');
-                const url = URL.createObjectURL(f);
+                const url = attachPreviews[i];
                 return (
                   <div key={i} className="relative rounded-lg overflow-hidden border border-white/10 bg-black/30">
-                    {isImage && (
+                    {isImage && url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={url} alt={f.name} className="h-24 w-full object-cover" />
                     )}
-                    {isVideo && (
+                    {isVideo && url && (
                       // eslint-disable-next-line jsx-a11y/media-has-caption
                       <video src={url} className="h-24 w-full object-cover" />
                     )}

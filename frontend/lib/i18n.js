@@ -71,7 +71,11 @@ const translations = {
   },
 };
 
-export const I18nContext = createContext({ lang: 'ru', t: (k) => k });
+export const I18nContext = createContext({
+  lang: 'ru',
+  t: (key) => translations.ru[key] || key,
+  switchLang: () => {},
+});
 
 export function I18nProvider({ children }) {
   const [lang, setLang] = useState('ru');
