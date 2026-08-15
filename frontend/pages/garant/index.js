@@ -36,7 +36,7 @@ export default function GarantIndexPage() {
       setActiveDeals(Array.isArray(activeRes.data) ? activeRes.data : activeRes.data.results || []);
       setHistoryDeals(Array.isArray(historyRes.data) ? historyRes.data : historyRes.data.results || []);
     } catch (err) {
-      setError(apiError(err, 'Could not load your deals.'));
+      setError(apiError(err, 'Не удалось загрузить ваши сделки.'));
     }
   }, []);
 
@@ -63,7 +63,7 @@ export default function GarantIndexPage() {
       setForm({ title: '', description: '', price_crypto: '', crypto_currency: 'USDT' });
       await load();
     } catch (err) {
-      setError(apiError(err, 'Could not create the deal.'));
+      setError(apiError(err, 'Не удалось создать сделку.'));
     } finally {
       setBusy(false);
     }
@@ -71,24 +71,24 @@ export default function GarantIndexPage() {
 
   const copyLink = (url) => {
     if (navigator?.clipboard) navigator.clipboard.writeText(url);
-    setNotice('Private deal link copied — send it to your counterparty.');
+    setNotice('Ссылка на сделку скопирована — отправьте её контрагенту.');
   };
 
   const deals = tab === 'active' ? activeDeals : historyDeals;
 
   return (
-    <Layout title="Garant escrow">
+    <Layout title="Гарант">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-3xl">
-            <ShieldCheckIcon className="h-8 w-8 text-gold" /> Garant
+            <ShieldCheckIcon className="h-8 w-8 text-gold" /> Гарант
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Escrowed crypto deals. Funds are released only when both sides confirm.
+            Безопасные криптосделки. Средства освобождаются только после подтверждения обеих сторон.
           </p>
         </div>
         <button type="button" onClick={() => setCreating(true)} className="btn-primary">
-          <PlusIcon className="h-4 w-4" /> New deal
+          <PlusIcon className="h-4 w-4" /> Новая сделка
         </button>
       </div>
 
@@ -114,9 +114,9 @@ export default function GarantIndexPage() {
 
       {created && (
         <div className="card mb-6 border-gold/40">
-          <h2 className="text-lg">Deal created</h2>
+          <h2 className="text-lg">Сделка создана</h2>
           <p className="mt-2 text-sm text-neutral-400">
-            Share this private link with your buyer. Only they need it.
+            Поделитесь этой ссылкой с покупателем. Она нужна только ему.
           </p>
           <div className="mt-3 flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-lg bg-black/50 px-3 py-2 text-xs text-gold">
@@ -127,7 +127,7 @@ export default function GarantIndexPage() {
               onClick={() => copyLink(created.private_url)}
               className="btn-ghost"
             >
-              <ClipboardDocumentIcon className="h-4 w-4" /> Copy
+              <ClipboardDocumentIcon className="h-4 w-4" /> Копировать
             </button>
           </div>
         </div>
@@ -143,7 +143,7 @@ export default function GarantIndexPage() {
             actions={
               <>
                 <a href={`/garant/${deal.private_link_token}`} className="btn-ghost">
-                  Open deal
+                  Открыть сделку
                 </a>
                 {deal.creator?.id === user?.id && (
                   <button
@@ -151,7 +151,7 @@ export default function GarantIndexPage() {
                     onClick={() => copyLink(deal.private_url)}
                     className="btn-dark"
                   >
-                    <ClipboardDocumentIcon className="h-4 w-4" /> Copy link
+                    <ClipboardDocumentIcon className="h-4 w-4" /> Скопировать ссылку
                   </button>
                 )}
               </>
@@ -170,15 +170,15 @@ export default function GarantIndexPage() {
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <form onSubmit={createDeal} className="w-full max-w-lg rounded-2xl glass-gold p-6">
-            <h2 className="font-display text-xl">New guarantee deal</h2>
+            <h2 className="font-display text-xl">Новая гарант-сделка</h2>
             <p className="mt-1 text-xs text-neutral-400">
-              A 5% platform fee is deducted from the seller payout on release.
+              При освобождении средств взимается комиссия платформы 5%.
             </p>
 
             <div className="mt-5 space-y-4">
               <div>
                 <label className="label" htmlFor="title">
-                  Title
+                  Название
                 </label>
                 <input
                   id="title"
@@ -186,13 +186,13 @@ export default function GarantIndexPage() {
                   className="input"
                   value={form.title}
                   onChange={set('title')}
-                  placeholder="Domain transfer: example.com"
+                  placeholder="Передача домена: example.com"
                 />
               </div>
 
               <div>
                 <label className="label" htmlFor="description">
-                  Terms
+                  Условия
                 </label>
                 <textarea
                   id="description"
@@ -201,14 +201,14 @@ export default function GarantIndexPage() {
                   className="input resize-none"
                   value={form.description}
                   onChange={set('description')}
-                  placeholder="What is being delivered, when, and under which conditions."
+                  placeholder="Что передаётся, когда и на каких условиях."
                 />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="label" htmlFor="price">
-                    Price
+                    Цена
                   </label>
                   <input
                     id="price"
@@ -223,7 +223,7 @@ export default function GarantIndexPage() {
                 </div>
                 <div>
                   <label className="label" htmlFor="currency">
-                    Currency
+                    Валюта
                   </label>
                   <select
                     id="currency"
@@ -243,10 +243,10 @@ export default function GarantIndexPage() {
 
             <div className="mt-6 flex gap-3">
               <button type="button" onClick={() => setCreating(false)} className="btn-dark flex-1">
-                Cancel
+                Отмена
               </button>
               <button type="submit" disabled={busy} className="btn-primary flex-1">
-                {busy ? 'Creating…' : 'Create deal'}
+                {busy ? 'Создание…' : 'Создать сделку'}
               </button>
             </div>
           </form>

@@ -3,7 +3,23 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.serializers import PublicUserSerializer
-from apps.posts.models import Comment, Like, Post, Share
+from apps.posts.models import Comment, Like, Post, PostAttachment, Share
+
+
+class PostAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PostAttachment
+        fields = ("id", "file_url", "file_type", "created_at")
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -28,6 +44,7 @@ class PostSerializer(serializers.ModelSerializer):
     comment_count = serializers.IntegerField(read_only=True)
     share_count = serializers.IntegerField(read_only=True)
     is_liked = serializers.SerializerMethodField()
+    attachments = PostAttachmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Post
@@ -43,6 +60,7 @@ class PostSerializer(serializers.ModelSerializer):
             "comment_count",
             "share_count",
             "is_liked",
+            "attachments",
             "created_at",
             "updated_at",
         )
@@ -53,8 +71,12 @@ class PostSerializer(serializers.ModelSerializer):
         return bool(request) and obj.likes.filter(user=request.user).exists()
 
     def validate(self, attrs):
+        # Allow attachments-only posts (checked at view level)
         if not attrs.get("content") and not attrs.get("media") and not self.instance:
-            raise serializers.ValidationError("A post needs text or media.")
+            request = self.context.get("request")
+            has_attachments = request and bool(request.FILES.getlist("attachments"))
+            if not has_attachments:
+                raise serializers.ValidationError("Публикация должна содержать текст, медиа или вложения.")
         return attrs
 
 

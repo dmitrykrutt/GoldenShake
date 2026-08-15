@@ -15,10 +15,10 @@ import { HANDSHAKE_LEVELS, USERNAME_GRADIENTS } from '../lib/badges';
 import { THEMES } from '../lib/themes';
 
 const TABS = [
-  { key: 'profile', label: 'Profile', icon: UserIcon },
-  { key: 'security', label: 'Security', icon: ShieldCheckIcon },
-  { key: 'notifications', label: 'Notifications', icon: BellIcon },
-  { key: 'privacy', label: 'Privacy & data', icon: TrashIcon },
+  { key: 'profile', label: 'Профиль', icon: UserIcon },
+  { key: 'security', label: 'Безопасность', icon: ShieldCheckIcon },
+  { key: 'notifications', label: 'Уведомления', icon: BellIcon },
+  { key: 'privacy', label: 'Приватность', icon: TrashIcon },
 ];
 
 export default function SettingsPage() {
@@ -48,7 +48,7 @@ export default function SettingsPage() {
       );
       setPrefs(prefsRes.data);
     } catch (err) {
-      setError(apiError(err, 'Could not load settings.'));
+      setError(apiError(err, 'Не удалось загрузить настройки.'));
     }
   }, []);
 
@@ -92,7 +92,7 @@ export default function SettingsPage() {
       try {
         socialLinks = JSON.parse(form.social_links || '{}');
       } catch (parseError) {
-        setError('Social links must be valid JSON, e.g. {"Telegram": "https://t.me/you"}');
+        setError('Social links должны быть в формате JSON, напр. {"Telegram": "https://t.me/you"}');
         setBusy(false);
         return;
       }
@@ -125,9 +125,9 @@ export default function SettingsPage() {
       }
       await refresh();
       setAvatarFile(null);
-      setNotice('Profile updated.');
+      setNotice('Профиль обновлён.');
     } catch (err) {
-      setError(apiError(err, 'Could not save your profile.'));
+      setError(apiError(err, 'Не удалось сохранить профиль.'));
     } finally {
       setBusy(false);
     }
@@ -140,7 +140,7 @@ export default function SettingsPage() {
       setPrefs(data);
       setNotice('Notification preferences saved.');
     } catch (err) {
-      setError(apiError(err, 'Could not save preferences.'));
+      setError(apiError(err, 'Не удалось сохранить настройки.'));
     }
   };
 
@@ -149,7 +149,7 @@ export default function SettingsPage() {
       const { data } = await api.post('/accounts/invites/', {});
       setInvites((prev) => [data, ...prev]);
     } catch (err) {
-      setError(apiError(err, 'Could not create an invite.'));
+      setError(apiError(err, 'Не удалось создать приглашение.'));
     }
   };
 
@@ -160,7 +160,7 @@ export default function SettingsPage() {
       setVerificationReason('');
       setNotice('Verification request submitted for review.');
     } catch (err) {
-      setError(apiError(err, 'Could not submit the request.'));
+      setError(apiError(err, 'Не удалось отправить заявку.'));
     }
   };
 
@@ -169,7 +169,7 @@ export default function SettingsPage() {
       await api.post('/accounts/profiles/gdpr-export/', { confirm: true });
       setNotice('Your data export has been queued — check your inbox shortly.');
     } catch (err) {
-      setError(apiError(err, 'Could not queue the export.'));
+      setError(apiError(err, 'Не удалось запустить экспорт.'));
     }
   };
 
@@ -228,7 +228,7 @@ export default function SettingsPage() {
                 <img
                   src={avatarPreview || user.avatar}
                   alt={user.username}
-                  className="h-20 w-20 object-cover"
+                  className="object-cover" style={{ width: '80px', height: '80px', borderRadius: '50%' }}
                 />
               ) : (
                 <div className="grid h-20 w-20 place-items-center bg-graphite text-2xl text-gold">
@@ -265,7 +265,7 @@ export default function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="username">
-                Username
+                Имя пользователя
               </label>
               <input id="username" className="input" value={form.username} onChange={set('username')} />
             </div>
@@ -350,7 +350,7 @@ export default function SettingsPage() {
 
           <div>
             <label className="label" htmlFor="bio">
-              Bio
+              О себе
             </label>
             <textarea
               id="bio"
@@ -363,7 +363,7 @@ export default function SettingsPage() {
 
           <div>
             <label className="label" htmlFor="social">
-              Social links (JSON)
+              Социальные ссылки (JSON)
             </label>
             <textarea
               id="social"
@@ -459,7 +459,7 @@ export default function SettingsPage() {
           </div>
 
           <button type="submit" disabled={busy} className="btn-primary">
-            {busy ? 'Saving…' : 'Save profile'}
+            {busy ? 'Сохранение…' : 'Сохранить профиль'}
           </button>
         </form>
       )}
@@ -467,10 +467,10 @@ export default function SettingsPage() {
       {tab === 'security' && (
         <div className="space-y-6">
           <div className="card">
-            <h2 className="text-xl">Two-factor authentication</h2>
+            <h2 className="text-xl">Двухфакторная аутентификация</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              TOTP is {user.totp_enabled ? 'active' : 'not yet activated'} on this account.
-              E-mail one-time codes are always required at sign-in.
+              TOTP {user.totp_enabled ? 'включён' : 'не активирован'} для этого аккаунта.
+              Одноразовые коды на e-mail всегда требуются при входе.
             </p>
             <span
               className={`badge mt-4 border px-3 py-1 ${
@@ -479,18 +479,18 @@ export default function SettingsPage() {
                   : 'border-red-500/40 bg-red-500/10 text-red-400'
               }`}
             >
-              {user.totp_enabled ? 'Authenticator active' : 'Authenticator inactive'}
+              {user.totp_enabled ? 'Аутентификатор активен' : 'Аутентификатор неактивен'}
             </span>
           </div>
 
           <div className="card">
-            <h2 className="text-xl">Invitations</h2>
+            <h2 className="text-xl">Приглашения</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              Each link admits up to five people. You earn handshakes for every member who joins.
+              Каждая ссылка позволяет зарегистрироваться до пяти людей. За каждого вступившего вы получаете рукопожатия.
             </p>
             {!['green', 'green_plus'].includes(user?.handshake_level) && (
               <button type="button" onClick={createInvite} className="btn-ghost mt-4">
-                Generate new invite
+                Создать приглашение
               </button>
             )}
             {['green', 'green_plus'].includes(user?.handshake_level) && (
@@ -501,11 +501,11 @@ export default function SettingsPage() {
                 <li key={invite.id} className="flex items-center gap-3 py-3">
                   <code className="min-w-0 flex-1 truncate text-xs text-gold">{invite.url}</code>
                   <span className="text-[11px] text-neutral-500">
-                    {invite.use_count}/{invite.max_uses} used
+                    {invite.use_count}/{invite.max_uses} использовано
                   </span>
                   <button
                     type="button"
-                    aria-label="Copy invite"
+                    aria-label="Скопировать"
                     onClick={() => copy(invite.url)}
                     className="text-neutral-400 hover:text-gold"
                   >
@@ -514,15 +514,15 @@ export default function SettingsPage() {
                 </li>
               ))}
               {!invites.length && (
-                <li className="py-6 text-center text-sm text-neutral-600">No invites yet.</li>
+                <li className="py-6 text-center text-sm text-neutral-600">Приглашений пока нет.</li>
               )}
             </ul>
           </div>
 
           <form onSubmit={requestVerification} className="card">
-            <h2 className="text-xl">Request verification</h2>
+            <h2 className="text-xl">Запрос верификации</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              Tell us who you are and why your account should carry the golden badge.
+              Расскажите, кто вы и почему ваш аккаунт должен получить золотую галочку.
             </p>
             <textarea
               rows={3}
@@ -530,10 +530,10 @@ export default function SettingsPage() {
               className="input mt-4 resize-none"
               value={verificationReason}
               onChange={(event) => setVerificationReason(event.target.value)}
-              placeholder="I run the @example trading desk…"
+              placeholder="Я веду трейдинг-деск @example…"
             />
             <button type="submit" className="btn-primary mt-4">
-              Submit request
+              Отправить заявку
             </button>
           </form>
         </div>
@@ -541,11 +541,11 @@ export default function SettingsPage() {
 
       {tab === 'notifications' && prefs && (
         <div className="card space-y-4">
-          <h2 className="text-xl">Delivery channels</h2>
+          <h2 className="text-xl">Каналы уведомлений</h2>
           {[
-            ['push_enabled', 'Push notifications (Firebase)'],
-            ['email_enabled', 'E-mail notifications'],
-            ['telegram_enabled', 'Telegram messages'],
+            ['push_enabled', 'Push-уведомления (Firebase)'],
+            ['email_enabled', 'Уведомления на e-mail'],
+            ['telegram_enabled', 'Сообщения в Telegram'],
           ].map(([key, label]) => (
             <label key={key} className="flex items-center gap-3 text-sm text-neutral-300">
               <input
@@ -563,20 +563,20 @@ export default function SettingsPage() {
       {tab === 'privacy' && (
         <div className="card space-y-5">
           <div>
-            <h2 className="text-xl">Export your data (GDPR)</h2>
+            <h2 className="text-xl">Экспорт данных (GDPR)</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              We will e-mail you a machine-readable archive of everything we store about you.
+              Мы отправим вам на e-mail архив всех данных, которые мы храним о вас.
             </p>
             <button type="button" onClick={requestGdpr} className="btn-ghost mt-4">
-              Request data export
+              Запросить экспорт данных
             </button>
           </div>
           <div className="divider" />
           <div>
-            <h2 className="text-xl text-red-400">Danger zone</h2>
+            <h2 className="text-xl text-red-400">Опасная зона</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              Account deletion is handled by support so that active escrow deals can be settled
-              first. Open a support ticket from any chat to begin.
+              Удаление аккаунта производится через поддержку, чтобы активные сделки через гарант могли быть завершены.
+              Откройте тикет в поддержку из любого чата.
             </p>
           </div>
         </div>

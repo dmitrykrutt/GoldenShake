@@ -34,14 +34,14 @@ export default function LoginPage() {
       const next = router.query.next ? String(router.query.next) : '/chats';
       router.push(next);
     } catch (err) {
-      setError(apiError(err, 'Sign-in failed.'));
+      setError(apiError(err, 'Ошибка входа.'));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Layout title="Sign in" sidebar={false} fullBleed>
+    <Layout title="Вход" sidebar={false} fullBleed>
       <div className="flex min-h-screen items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           <div className="mb-8 flex justify-center">
@@ -49,16 +49,16 @@ export default function LoginPage() {
           </div>
 
           <div className="card">
-            <h1 className="text-2xl">Welcome back</h1>
+            <h1 className="text-2xl">Добро пожаловать</h1>
             <p className="mt-2 text-sm text-neutral-400">
-              Sign in with your username and passphrase. If you enabled an authenticator app,
-              enter the 6-digit code too.
+              Войдите с помощью имени пользователя и пароля. Если включён аутентификатор —
+              введите 6-значный код.
             </p>
 
             <form onSubmit={signIn} className="mt-6 space-y-4">
               <div>
                 <label className="label" htmlFor="username">
-                  Username
+                  Имя пользователя
                 </label>
                 <input
                   id="username"
@@ -71,7 +71,7 @@ export default function LoginPage() {
               </div>
               <div>
                 <label className="label" htmlFor="pw">
-                  Passphrase
+                  Пароль
                 </label>
                 <input
                   id="pw"
@@ -84,7 +84,7 @@ export default function LoginPage() {
               </div>
               <div>
                 <label className="label" htmlFor="totp-code">
-                  Authenticator code
+                  Код аутентификатора
                 </label>
                 <input
                   id="totp-code"
@@ -97,7 +97,7 @@ export default function LoginPage() {
                 />
               </div>
               <button type="submit" disabled={busy} className="btn-primary w-full">
-                {busy ? 'Signing in…' : 'Sign in'}
+                {busy ? 'Вход…' : 'Войти'}
               </button>
             </form>
 
@@ -105,9 +105,9 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-6 text-center text-sm text-neutral-500">
-            Have an invite?{' '}
+            Есть приглашение?{' '}
             <Link href="/auth/register" className="text-gold hover:underline">
-              Create an account
+              Создать аккаунт
             </Link>
           </p>
         </div>
