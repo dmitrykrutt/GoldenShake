@@ -242,6 +242,7 @@ class WithdrawalRequest(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="withdrawal_requests"
     )
     currency = models.CharField(max_length=10)
+    network = models.CharField(max_length=20, default="TON")  # e.g. 'TRC20', 'TON'
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     wallet_address = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING)

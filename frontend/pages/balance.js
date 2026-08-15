@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownIcon, ArrowsRightLeftIcon, ArrowUpIcon } from '@heroicons/react/24/outline';
 import Layout from '../components/Layout';
 import HandshakeBadge from '../components/HandshakeBadge';
 import api, { apiError } from '../lib/api';

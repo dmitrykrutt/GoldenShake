@@ -39,7 +39,7 @@ export default function RegisterPage() {
   const checkInvite = async () => {
     setError('');
     if (!form.invite_token) {
-      setError('An invite token is required — GoldenShake is invite-only.');
+      setError('Требуется инвайт-токен — GoldenShake доступен только по приглашению.');
       return;
     }
     setBusy(true);
@@ -49,9 +49,9 @@ export default function RegisterPage() {
       );
       setInviteState(data);
       if (data.valid) setStep(2);
-      else setError('This invite link has been used up or is no longer active.');
+      else setError('Эта ссылка-приглашение исчерпана или больше не активна.');
     } catch (err) {
-      setError(apiError(err, 'Invite link could not be verified.'));
+      setError(apiError(err, 'Не удалось проверить ссылку-приглашение.'));
     } finally {
       setBusy(false);
     }
@@ -73,10 +73,10 @@ export default function RegisterPage() {
         newsletter_opt_in: form.newsletter_opt_in,
       });
       setTotpSetup(data.totp_setup);
-      setNotice('Account created. Set up your authenticator app and continue to sign in.');
+      setNotice('Аккаунт создан. Настройте аутентификатор и войдите.');
       setStep(3);
     } catch (err) {
-      setError(apiError(err, 'Registration failed.'));
+      setError(apiError(err, 'Регистрация не выполнена.'));
     } finally {
       setBusy(false);
     }
@@ -98,7 +98,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <Layout title="Create account" sidebar={false} fullBleed>
+    <Layout title="Создать аккаунт" sidebar={false} fullBleed>
       <div className="flex min-h-screen items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg">
           <div className="mb-8 flex justify-center">
@@ -117,13 +117,13 @@ export default function RegisterPage() {
 
             {step === 1 && (
               <>
-                <h1 className="text-2xl">Enter your invite</h1>
+                <h1 className="text-2xl">Введите приглашение</h1>
                 <p className="mt-2 text-sm text-neutral-400">
-                  GoldenShake is invite-only. Every member can invite five people.
+                  GoldenShake доступен только по приглашению. Каждый участник может пригласить пять человек.
                 </p>
                 <div className="mt-6">
                   <label className="label" htmlFor="invite">
-                    Invite token
+                    Код приглашения
                   </label>
                   <input
                     id="invite"
@@ -135,7 +135,7 @@ export default function RegisterPage() {
                 </div>
                 {inviteState?.valid && (
                   <p className="mt-3 text-xs text-green-400">
-                    Valid invite from @{inviteState.inviter} · {inviteState.uses_left} uses left
+                    Valid invite from @{inviteState.inviter} · {inviteState.uses_left} осталось использований
                   </p>
                 )}
                 <button
@@ -144,19 +144,19 @@ export default function RegisterPage() {
                   disabled={busy}
                   className="btn-primary mt-6 w-full"
                 >
-                  {busy ? 'Checking…' : 'Verify invite'}
+                  {busy ? 'Проверка…' : 'Проверить приглашение'}
                 </button>
               </>
             )}
 
             {step === 2 && (
               <form onSubmit={submitRegistration}>
-                <h1 className="text-2xl">Create your account</h1>
+                <h1 className="text-2xl">Создайте аккаунт</h1>
 
                 <div className="mt-5 space-y-4">
                   <div>
                     <label className="label" htmlFor="username">
-                      Username
+                      Имя пользователя
                     </label>
                     <input
                       id="username"
@@ -172,7 +172,7 @@ export default function RegisterPage() {
 
                   <div>
                     <label className="label" htmlFor="phone">
-                      Phone (optional)
+                      Телефон (необязательно)
                     </label>
                     <input
                       id="phone"
@@ -186,7 +186,7 @@ export default function RegisterPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="label" htmlFor="pw1">
-                        Passphrase
+                        Пароль
                       </label>
                       <input
                         id="pw1"
@@ -248,7 +248,7 @@ export default function RegisterPage() {
                 </div>
 
                 <button type="submit" disabled={busy} className="btn-primary mt-6 w-full">
-                  {busy ? 'Creating…' : 'Create account'}
+                  {busy ? 'Создание…' : 'Создать аккаунт'}
                 </button>
               </form>
             )}

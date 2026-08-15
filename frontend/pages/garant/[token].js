@@ -51,7 +51,7 @@ export default function GarantDealPage() {
   const agree = () =>
     run(
       () => api.post(`/garant/deals/by-token/${token}/agree/`),
-      'You joined the deal. A guarantee chat has been opened.'
+      'Вы присоединились к сделке. Открыт гарант-чат.'
     );
 
   const pay = () =>
@@ -59,27 +59,27 @@ export default function GarantDealPage() {
       const { data } = await api.post(`/garant/deals/${deal.id}/pay/`);
       setPayment(data);
       if (data.pay_url) window.open(data.pay_url, '_blank', 'noopener,noreferrer');
-    }, 'Invoice created — complete the payment in CryptoPay.');
+    }, 'Счёт создан — завершите оплату в CryptoPay.');
 
   const complete = () =>
     run(
       () => api.post(`/garant/deals/${deal.id}/complete/`),
-      'Marked as delivered. Waiting for the buyer to confirm.'
+      'Отмечено как выполнено. Ожидается подтверждение покупателя.'
     );
 
   const confirm = () =>
     run(
       () => api.post(`/garant/deals/${deal.id}/confirm/`),
-      'Confirmed. Funds are being released to the seller.'
+      'Подтверждено. Средства переводятся продавцу.'
     );
 
   const refund = () =>
     run(
       () => api.post(`/garant/deals/${deal.id}/refund/`),
-      'Refund requested. Funds returned to your fiat balance.'
+      'Средства возвращены покупателю.'
     );
 
-  const cancel = () => run(() => api.post(`/garant/deals/${deal.id}/cancel/`), 'Deal cancelled.');
+  const cancel = () => run(() => api.post(`/garant/deals/${deal.id}/cancel/`), 'Сделка отменена.');
 
   const openDispute = (event) => {
     event.preventDefault();
@@ -92,7 +92,7 @@ export default function GarantDealPage() {
 
   if (!deal) {
     return (
-      <Layout title="Garant deal">
+      <Layout title="Гарант-сделка">
         {error ? <p className="text-sm text-red-400">{error}</p> : <div className="skeleton h-56 w-full" />}
       </Layout>
     );
@@ -103,7 +103,7 @@ export default function GarantDealPage() {
   const canAgree = !deal.buyer && !isSeller && ['draft', 'awaiting_buyer'].includes(deal.status);
 
   return (
-    <Layout title={deal.title || 'Garant deal'}>
+    <Layout title={deal.title || 'Гарант-сделка'}>
       {notice && <p className="mb-4 text-xs text-green-400">{notice}</p>}
       {error && <p className="mb-4 text-xs text-red-400">{error}</p>}
 
@@ -114,17 +114,22 @@ export default function GarantDealPage() {
           <>
             {canAgree && (
               <button type="button" onClick={agree} disabled={busy} className="btn-primary">
-                Agree to terms
+                Принять условия
               </button>
             )}
             {isBuyer && deal.status === 'awaiting_payment' && (
               <button type="button" onClick={pay} disabled={busy} className="btn-primary">
-                Pay {deal.price_crypto} {deal.crypto_currency}
+                Оплатить {deal.price_crypto} {deal.crypto_currency}
               </button>
             )}
             {isSeller && deal.status === 'paid' && (
               <button type="button" onClick={complete} disabled={busy} className="btn-primary">
                 Я выполнил заказ
+              </button>
+            )}
+            {isSeller && ['paid', 'completed_by_seller'].includes(deal.status) && (
+              <button type="button" onClick={refund} disabled={busy} className="btn-dark text-red-400 border-red-500/30 hover:border-red-400">
+                Вернуть деньги покупателю
               </button>
             )}
             {isBuyer && deal.status === 'completed_by_seller' && (
@@ -137,11 +142,6 @@ export default function GarantDealPage() {
                 Подтвердить получение
               </button>
             )}
-            {isBuyer && deal.status === 'paid' && (
-              <button type="button" onClick={refund} disabled={busy} className="btn-dark">
-                Вернуть деньги
-              </button>
-            )}
             {['paid', 'completed_by_seller'].includes(deal.status) && (isBuyer || isSeller) && (
               <button
                 type="button"
@@ -149,12 +149,12 @@ export default function GarantDealPage() {
                 disabled={busy}
                 className="btn-dark"
               >
-                Open dispute
+                Открыть спор
               </button>
             )}
             {isSeller && ['draft', 'awaiting_buyer', 'awaiting_payment'].includes(deal.status) && !deal.buyer && (
               <button type="button" onClick={cancel} disabled={busy} className="btn-dark">
-                Cancel deal
+                Отменить сделку
               </button>
             )}
           </>
@@ -163,25 +163,19 @@ export default function GarantDealPage() {
 
       {payment?.pay_url && (
         <div className="card mt-6">
-          <h2 className="text-lg">Payment invoice</h2>
+          <h2 className="text-lg">Счёт на оплату</h2>
           <p className="mt-2 text-sm text-neutral-400">
-            Invoice {payment.cryptopay_invoice_id} for {payment.amount} {payment.currency} ·{' '}
-            {payment.status}
+            Счёт {payment.cryptopay_invoice_id} на {payment.amount} {payment.currency} · {payment.status}
           </p>
-          <a
-            href={payment.pay_url}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="btn-primary mt-4"
-          >
-            Open CryptoPay
+          <a href={payment.pay_url} target="_blank" rel="noreferrer noopener" className="btn-primary mt-4">
+            Открыть CryptoPay
           </a>
         </div>
       )}
 
       {deal.disputes?.length > 0 && (
         <div className="card mt-6">
-          <h2 className="text-lg text-red-400">Disputes</h2>
+          <h2 className="text-lg text-red-400">Споры</h2>
           <ul className="mt-3 space-y-3">
             {deal.disputes.map((dispute) => (
               <li key={dispute.id} className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
@@ -190,7 +184,7 @@ export default function GarantDealPage() {
                 </p>
                 <p className="mt-1 text-sm text-neutral-300">{dispute.description}</p>
                 {dispute.resolution_note && (
-                  <p className="mt-2 text-xs text-gold">Staff: {dispute.resolution_note}</p>
+                  <p className="mt-2 text-xs text-gold">Администратор: {dispute.resolution_note}</p>
                 )}
               </li>
             ))}
@@ -201,9 +195,9 @@ export default function GarantDealPage() {
       {showDispute && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <form onSubmit={openDispute} className="w-full max-w-md rounded-2xl glass-gold p-6">
-            <h2 className="font-display text-xl">Open a dispute</h2>
+            <h2 className="font-display text-xl">Открыть спор</h2>
             <p className="mt-1 text-xs text-neutral-400">
-              Describe what went wrong. Staff will review the guarantee chat history.
+              Опишите проблему. Администраторы изучат историю гарант-чата.
             </p>
             <textarea
               required
@@ -213,15 +207,11 @@ export default function GarantDealPage() {
               onChange={(event) => setDisputeText(event.target.value)}
             />
             <div className="mt-5 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowDispute(false)}
-                className="btn-dark flex-1"
-              >
-                Cancel
+              <button type="button" onClick={() => setShowDispute(false)} className="btn-dark flex-1">
+                Отмена
               </button>
               <button type="submit" disabled={busy} className="btn-primary flex-1">
-                Submit
+                Отправить
               </button>
             </div>
           </form>

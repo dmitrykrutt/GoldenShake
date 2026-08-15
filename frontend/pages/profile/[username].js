@@ -49,7 +49,7 @@ export default function ProfilePage() {
         );
       }
     } catch (err) {
-      setError(apiError(err, 'Profile not found.'));
+      setError(apiError(err, 'Профиль не найден.'));
     }
   }, [username, user?.username]);
 
@@ -67,7 +67,7 @@ export default function ProfilePage() {
       });
       router.push(`/chats/${data.id}`);
     } catch (err) {
-      setError(apiError(err, 'Could not open a chat.'));
+      setError(apiError(err, 'Не удалось открыть чат.'));
     }
   };
 
@@ -79,7 +79,7 @@ export default function ProfilePage() {
       setPosts((prev) => [data, ...prev]);
       setNewPost('');
     } catch (err) {
-      setError(apiError(err, 'Could not publish the post.'));
+      setError(apiError(err, 'Не удалось опубликовать запись.'));
     }
   };
 
@@ -98,7 +98,7 @@ export default function ProfilePage() {
         )
       );
     } catch (err) {
-      setError(apiError(err, 'Could not like this post.'));
+      setError(apiError(err, 'Не удалось поставить лайк.'));
     }
   };
 
@@ -120,7 +120,7 @@ export default function ProfilePage() {
 
   if (!profile) {
     return (
-      <Layout title="Profile">
+      <Layout title="Профиль">
         {error ? (
           <p className="text-sm text-red-400">{error}</p>
         ) : (
@@ -161,7 +161,7 @@ export default function ProfilePage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl"><Username user={profile} withAt /></h1>
-              <HandshakeBadge level={profile.handshake_level || 'green'} />
+              <HandshakeBadge level={profile.handshake_level || 'green'} showLabel={false} />
               {profile.private_profile && (
                 <span className="badge border border-white/10 bg-black/40 px-2 py-0.5 text-neutral-400">
                   <LockClosedIcon className="h-3 w-3" /> Private
@@ -200,7 +200,7 @@ export default function ProfilePage() {
           {!isSelf && (
             <div className="flex flex-col gap-2">
               <button type="button" onClick={startChat} className="btn-primary">
-                <ChatBubbleLeftRightIcon className="h-4 w-4" /> Message
+                <ChatBubbleLeftRightIcon className="h-4 w-4" /> Сообщение
               </button>
               <button
                 type="button"
@@ -208,7 +208,7 @@ export default function ProfilePage() {
                 className="btn-ghost"
                 style={{ borderColor: `${theme.primary}55`, color: theme.primary }}
               >
-                <GiftIcon className="h-4 w-4" /> Donate
+                <GiftIcon className="h-4 w-4" /> Донат
               </button>
               <button
                 type="button"

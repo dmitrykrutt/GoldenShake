@@ -98,3 +98,19 @@ class Share(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} shared {self.post_id}"
+
+
+class PostAttachment(models.Model):
+    """A photo or video attached to a post."""
+
+    post = models.ForeignKey(Post, related_name="attachments", on_delete=models.CASCADE)
+    file = models.FileField(upload_to="post_attachments/")
+    file_type = models.CharField(max_length=10)  # 'image', 'video'
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posts_attachment"
+        ordering = ("created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.file_type} attachment for post {self.post_id}"

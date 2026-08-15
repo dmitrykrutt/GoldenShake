@@ -1,14 +1,14 @@
 export const HANDSHAKE_LEVELS = {
-  green: { emoji: '🤝', color: '#4CAF50', label: 'Green' },
-  green_plus: { emoji: '🤝', color: '#8BC34A', label: 'Green Pro' },
-  blue: { emoji: '🤝', color: '#2196F3', label: 'Blue' },
-  blue_plus: { emoji: '🤝', color: '#2196F3', label: 'Blue+' },
-  purple: { emoji: '🤝', color: '#9C27B0', label: 'Purple' },
-  purple_plus: { emoji: '🤝', color: '#9C27B0', label: 'Purple+' },
-  red: { emoji: '🤝', color: '#F44336', label: 'Red' },
-  red_plus: { emoji: '🤝', color: '#F44336', label: 'Red+' },
-  gold: { emoji: '🤝', color: '#FFD700', label: 'Gold' },
-  gold_plus: { emoji: '🤝', color: '#FFD700', label: 'Gold+' },
+  green: { color: '#4CAF50', label: 'Green' },
+  green_plus: { color: '#8BC34A', label: 'Green Pro' },
+  blue: { color: '#2196F3', label: 'Blue' },
+  blue_plus: { color: '#2196F3', label: 'Blue+' },
+  purple: { color: '#9C27B0', label: 'Purple' },
+  purple_plus: { color: '#9C27B0', label: 'Purple+' },
+  red: { color: '#F44336', label: 'Red' },
+  red_plus: { color: '#F44336', label: 'Red+' },
+  gold: { color: '#FFD700', label: 'Gold' },
+  gold_plus: { color: '#FFD700', label: 'Gold+' },
 };
 
 export const USERNAME_GRADIENTS = [

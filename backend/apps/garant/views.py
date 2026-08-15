@@ -277,12 +277,15 @@ class GarantDealViewSet(viewsets.ModelViewSet):
     @extend_schema(request=None, responses={200: GarantDealSerializer})
     @action(detail=True, methods=["post"], url_path="refund")
     def refund(self, request, pk=None):
-        """Buyer requests a refund — returns full amount to their fiat balance."""
+        """Seller returns funds — full amount credited to buyer's fiat balance, no commission."""
         deal = self.get_object()
-        if deal.buyer_id != request.user.id:
-            return Response({"detail": "Only the buyer can request a refund."}, status=403)
-        if deal.status != GarantDeal.Status.PAID:
-            return Response({"detail": "Refund is only available for paid deals (funds must be held in escrow)."}, status=400)
+        if deal.creator_id != request.user.id:
+            return Response({"detail": "Только продавец может вернуть деньги."}, status=403)
+        if deal.status not in {GarantDeal.Status.PAID, GarantDeal.Status.COMPLETED_BY_SELLER}:
+            return Response({"detail": "Возврат доступен только для оплаченных сделок."}, status=400)
+
+        if deal.buyer_id is None:
+            return Response({"detail": "Нет покупателя для возврата средств."}, status=400)
 
         from apps.coins.models import FiatBalance, FiatTransaction
 
@@ -290,30 +293,30 @@ class GarantDealViewSet(viewsets.ModelViewSet):
 
         with db_transaction.atomic():
             deal_obj = GarantDeal.objects.select_for_update().get(pk=deal.pk)
-            if deal_obj.status != GarantDeal.Status.PAID:
-                return Response({"detail": "Refund is only available for paid deals."}, status=400)
+            if deal_obj.status not in {GarantDeal.Status.PAID, GarantDeal.Status.COMPLETED_BY_SELLER}:
+                return Response({"detail": "Возврат недоступен."}, status=400)
             deal_obj.status = GarantDeal.Status.REFUNDED
             from django.utils import timezone as tz
             deal_obj.updated_at = tz.now()
             deal_obj.save(update_fields=["status", "updated_at"])
 
             balance, _ = FiatBalance.objects.select_for_update().get_or_create(
-                user=request.user,
+                user=deal_obj.buyer,
                 currency=deal_obj.crypto_currency,
                 defaults={"amount": 0},
             )
             balance.amount += deal_obj.price_crypto
             balance.save(update_fields=["amount", "updated_at"])
             FiatTransaction.objects.create(
-                user=request.user,
+                user=deal_obj.buyer,
                 currency=deal_obj.crypto_currency,
                 amount=deal_obj.price_crypto,
                 tx_type=FiatTransaction.DEAL_REFUND,
-                description=f"Refund for deal #{deal_obj.private_link_token[:8]} — {deal_obj.title}",
+                description=f"Возврат средств по сделке #{deal_obj.private_link_token[:8]} — {deal_obj.title}",
             )
 
         deal.refresh_from_db()
-        _send_system_message(deal, f"↩️ Покупатель запросил возврат средств по сделке #{deal.private_link_token[:8]}.")
+        _send_system_message(deal, "💸 Продавец вернул деньги. Сделка отменена.")
         return Response(GarantDealSerializer(deal, context={"request": request}).data)
 
 

@@ -94,5 +94,6 @@ class DepositSerializer(serializers.Serializer):
 
 class WithdrawSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value="0.01")
-    currency = serializers.CharField(max_length=10)
+    currency = serializers.ChoiceField(choices=["USDT", "TON"])
+    network = serializers.ChoiceField(choices=["TRC20", "TON"], required=False, default="TON")
     wallet = serializers.CharField(max_length=200)

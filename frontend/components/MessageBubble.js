@@ -15,7 +15,7 @@ function LockedFileCard({ locked, onUnlock, busy }) {
     <div className="rounded-xl border border-gold/30 bg-black/50 p-4">
       <div className="flex items-center gap-2 text-gold">
         <LockClosedIcon className="h-5 w-5" />
-        <span className="text-sm font-semibold">Locked content</span>
+        <span className="text-sm font-semibold">Закрытый контент</span>
       </div>
       {locked.preview_text && (
         <p className="mt-2 text-xs text-neutral-400">{locked.preview_text}</p>
@@ -26,7 +26,7 @@ function LockedFileCard({ locked, onUnlock, busy }) {
         onClick={onUnlock}
         className="btn-primary mt-3 w-full text-xs"
       >
-        Unlock for {locked.price_amount}{' '}
+        Разблокировать за {locked.price_amount}{' '}
         <span style={{ color: rarity.color }}>{rarity.label}</span>
       </button>
     </div>
@@ -59,7 +59,7 @@ export default function MessageBubble({
     return (
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
         <div className="rounded-2xl border border-white/5 bg-graphite/40 px-4 py-2 text-xs italic text-neutral-600">
-          Message deleted
+          Сообщение удалено
         </div>
       </div>
     );
@@ -148,7 +148,7 @@ export default function MessageBubble({
           )}
 
           <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-neutral-500">
-            {message.edited_at && <span>edited</span>}
+            {message.edited_at && <span>редактировано</span>}
             <span>{formatDate(message.created_at)}</span>
           </div>
         </div>
@@ -156,7 +156,7 @@ export default function MessageBubble({
         <div className="mt-1 flex gap-1 opacity-0 transition group-hover:opacity-100">
           <button
             type="button"
-            aria-label="Reply"
+            aria-label="Ответить"
             onClick={() => onReply?.(message)}
             className="rounded-md p-1 text-neutral-500 hover:text-gold"
           >
@@ -164,7 +164,7 @@ export default function MessageBubble({
           </button>
           <button
             type="button"
-            aria-label="Pin message"
+            aria-label="Закрепить"
             onClick={() => onPin?.(message)}
             className="rounded-md p-1 text-neutral-500 hover:text-gold"
           >
@@ -173,7 +173,7 @@ export default function MessageBubble({
           {isOwn && (
             <button
               type="button"
-              aria-label="Delete message"
+              aria-label="Удалить сообщение"
               onClick={() => onDelete?.(message)}
               className="rounded-md p-1 text-neutral-500 hover:text-red-400"
             >
