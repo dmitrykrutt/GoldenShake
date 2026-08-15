@@ -236,37 +236,3 @@ function ChatListItem({ room, activeId, currentUserId, onDelete }) {
     </li>
   );
 }
-
-export default function ChatList({ rooms = [], activeId = null, loading = false, currentUserId = null, onDelete }) {
-  if (loading) {
-    return (
-      <div className="space-y-2 p-3">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="skeleton h-16 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!rooms.length) {
-    return (
-      <div className="p-8 text-center text-sm text-neutral-500">
-        No conversations yet. Start one from a profile page.
-      </div>
-    );
-  }
-
-  return (
-    <ul className="divide-y divide-white/5">
-      {rooms.map((room) => (
-        <ChatListItem
-          key={room.id}
-          room={room}
-          activeId={activeId}
-          currentUserId={currentUserId}
-          onDelete={onDelete}
-        />
-      ))}
-    </ul>
-  );
-}

@@ -3,8 +3,6 @@ import logging
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
-
-logger = logging.getLogger(__name__)
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -18,6 +16,8 @@ from apps.coins.serializers import (
     ExchangeSerializer,
 )
 from apps.coins.services import InsufficientCoins, InvalidExchange, exchange, level_progress, transfer
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema(tags=["coins"])

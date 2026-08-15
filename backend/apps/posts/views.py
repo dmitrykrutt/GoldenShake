@@ -1,12 +1,17 @@
 """REST endpoints for the profile post feed."""
+import logging
+
 from django.db.models import Q
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.posts.models import Comment, Like, Post, Share
+from apps.posts.models import Comment, Like, Post, PostAttachment, Share
+
+logger = logging.getLogger(__name__)
 from apps.posts.serializers import CommentSerializer, PostSerializer, ShareSerializer
 
 
@@ -31,19 +36,15 @@ class PostViewSet(viewsets.ModelViewSet):
         ).distinct()
 
     def perform_create(self, serializer):
-        import logging
-        logger = logging.getLogger(__name__)
         post = serializer.save(author=self.request.user)
         files = self.request.FILES.getlist("attachments")
         if files:
             total_size = sum(f.size for f in files)
             if len(files) > 5:
                 post.delete()
-                from rest_framework.exceptions import ValidationError
                 raise ValidationError("Максимум 5 файлов на публикацию.")
             if total_size > 100 * 1024 * 1024:
                 post.delete()
-                from rest_framework.exceptions import ValidationError
                 raise ValidationError("Общий размер файлов не должен превышать 100 МБ.")
             for f in files:
                 mime = f.content_type or ""
@@ -53,7 +54,6 @@ class PostViewSet(viewsets.ModelViewSet):
                     file_type = "video"
                 else:
                     file_type = "file"
-                from apps.posts.models import PostAttachment
                 PostAttachment.objects.create(post=post, file=f, file_type=file_type)
                 logger.info("Created PostAttachment for post %s: %s (%s)", post.id, f.name, file_type)
 
