@@ -1,4 +1,5 @@
-"""Serializers for coin balances, exchanges and the ledger."""
+"""Serializers for coin balances, exchanges, fiat and CryptoPay checks."""
+from decimal import Decimal
 from rest_framework import serializers
 
 from apps.coins.models import EXCHANGE_RATES, RARITY_ORDER, CoinTransaction, HandshakeCoin
@@ -88,12 +89,10 @@ class FiatTransactionSerializer(serializers.Serializer):
 
 
 class DepositSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value="0.01")
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value=Decimal("0.01"))
     currency = serializers.CharField(max_length=10)
 
 
 class WithdrawSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value="0.01")
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value=Decimal("0.01"))
     currency = serializers.ChoiceField(choices=["USDT", "TON"])
-    network = serializers.ChoiceField(choices=["TRC20", "TON"], required=False, default="TON")
-    wallet = serializers.CharField(max_length=200)

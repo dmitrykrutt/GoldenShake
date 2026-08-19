@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
 from apps.chat.models import ChatRoom, LockedFile, Message, PinnedChat, SupportTicket
@@ -235,13 +235,11 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
 
 @extend_schema(tags=["chat"], responses={200: bytes})
 class ChatMediaViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def retrieve(self, request, file_path=None):
         message = get_object_or_404(
-            Message.objects.filter(room__participants=request.user)
-            .exclude(deleted_for_self_users=request.user)
-            .exclude(deleted_for_all=True),
+            Message.objects.exclude(deleted_for_all=True),
             media=file_path,
         )
         if not message.media:

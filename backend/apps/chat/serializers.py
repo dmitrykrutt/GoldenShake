@@ -1,23 +1,17 @@
-"""Serializers for chat rooms, messages and locked files."""
-import mimetypes
-
+import logging
 from django.contrib.auth import get_user_model
-from django.db import models, transaction
-from django.urls import reverse
 from rest_framework import serializers
+from .models import ChatRoom, Message, LockedFile, PinnedChat, RoomMembership
 
-from apps.accounts.models import BlockedUser
-from apps.accounts.serializers import PublicUserSerializer
-from apps.chat.models import (
-    ChatRoom,
-    LockedFile,
-    Message,
-    PinnedChat,
-    RoomMembership,
-    SupportTicket,
-)
-
+logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+class ChatUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'avatar', 'handshake_level']
+        read_only_fields = fields
 
 
 class LockedFileSerializer(serializers.ModelSerializer):
@@ -25,220 +19,155 @@ class LockedFileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LockedFile
-        fields = ("id", "price_amount", "price_rarity", "preview_text", "is_unlocked")
-        read_only_fields = ("id", "is_unlocked")
+        fields = ['id', 'price_amount', 'price_rarity', 'preview_text', 'is_unlocked']
 
-    def get_is_unlocked(self, obj) -> bool:
-        request = self.context.get("request")
-        return bool(request) and obj.is_unlocked_for(request.user)
+    def get_is_unlocked(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.is_unlocked_for(request.user)
+        return False
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    sender = PublicUserSerializer(read_only=True)
-    content = serializers.SerializerMethodField()
-    locked_file = LockedFileSerializer(read_only=True)
+    sender = ChatUserSerializer(read_only=True)
     media = serializers.SerializerMethodField()
+    locked = LockedFileSerializer(source='locked_file', read_only=True)
+    is_read = serializers.SerializerMethodField()
+    content = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = (
-            "id",
-            "room",
-            "sender",
-            "content",
-            "message_type",
-            "media",
-            "media_meta",
-            "reply_to",
-            "is_pinned",
-            "deleted_for_all",
-            "locked_file",
-            "edited_at",
-            "created_at",
-        )
-        read_only_fields = ("id", "sender", "deleted_for_all", "edited_at", "created_at")
+        fields = [
+            'id', 'room', 'sender', 'content', 'message_type',
+            'media', 'media_meta', 'reply_to', 'is_pinned',
+            'locked', 'is_read', 'created_at', 'updated_at'
+        ]
+        read_only_fields = fields
 
-    def get_content(self, obj) -> str:
-        request = self.context.get("request")
-        if obj.deleted_for_all:
-            return ""
-        locked = getattr(obj, "locked_file", None)
-        if locked and request and not locked.is_unlocked_for(request.user):
-            return ""
-        return obj.plaintext
+    def get_content(self, obj):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        if hasattr(obj, 'locked_file') and obj.locked_file:
+            if user and user != obj.sender and not obj.locked_file.is_unlocked_for(user):
+                return ""
+        
+        try:
+            return obj.plaintext
+        except Exception:
+            return obj.ciphertext or ""
 
-    def get_media(self, obj) -> str | None:
-        request = self.context.get("request")
+    def get_media(self, obj):
         if not obj.media:
             return None
-        if not request:
-            return obj.media.url
-        return request.build_absolute_uri(
-            reverse("v1:chat:media", kwargs={"file_path": obj.media.name})
-        )
+        request = self.context.get('request')
+        try:
+            url = f"/api/v1/chat/media/{obj.media.name}"
+            return request.build_absolute_uri(url) if request else url
+        except Exception:
+            return str(obj.media)
+
+    def get_is_read(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.read_by.filter(id=request.user.id).exists()
+        return False
 
 
 class MessageCreateSerializer(serializers.ModelSerializer):
-    content = serializers.CharField(allow_blank=True, required=False, default="")
-    price_amount = serializers.IntegerField(required=False, min_value=1, write_only=True)
-    price_rarity = serializers.CharField(required=False, write_only=True)
+    content = serializers.CharField(required=False, allow_blank=True)
+    locked_price_amount = serializers.IntegerField(required=False, write_only=True)
+    locked_price_rarity = serializers.CharField(required=False, write_only=True)
+    locked_preview_text = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Message
-        fields = (
-            "room",
-            "content",
-            "message_type",
-            "media",
-            "media_meta",
-            "reply_to",
-            "price_amount",
-            "price_rarity",
-        )
+        fields = [
+            'id', 'content', 'message_type', 'media', 'media_meta',
+            'reply_to', 'locked_price_amount', 'locked_price_rarity', 'locked_preview_text'
+        ]
 
-    def validate_room(self, value):
-        request = self.context["request"]
-        if not value.has_participant(request.user):
-            raise serializers.ValidationError("You are not a participant of this room.")
-        return value
-
-    @transaction.atomic
     def create(self, validated_data):
-        price_amount = validated_data.pop("price_amount", None)
-        price_rarity = validated_data.pop("price_rarity", "green")
-        body = validated_data.pop("content", "")
-        message = Message(sender=self.context["request"].user, **validated_data)
-        message.set_plaintext(body)
-        if message.media:
-            guessed_type, _ = mimetypes.guess_type(message.media.name)
-            message.media_meta = {
-                **(message.media_meta or {}),
-                "name": message.media_meta.get("name") or message.media.name.rsplit("/", 1)[-1],
-                "size": message.media_meta.get("size") or getattr(message.media, "size", None),
-                "content_type": message.media_meta.get("content_type") or guessed_type or "",
-            }
-        if price_amount:
-            message.message_type = Message.Type.LOCKED_FILE
+        content = validated_data.pop('content', '')
+        locked_price = validated_data.pop('locked_price_amount', None)
+        locked_rarity = validated_data.pop('locked_price_rarity', 'green')
+        locked_preview = validated_data.pop('locked_preview_text', '')
+
+        message = Message(**validated_data)
+        message.set_plaintext(content)
         message.save()
-        if price_amount:
+
+        if locked_price is not None:
             LockedFile.objects.create(
-                message=message, price_amount=price_amount, price_rarity=price_rarity
+                message=message,
+                price_amount=locked_price,
+                price_rarity=locked_rarity,
+                preview_text=locked_preview,
             )
+            message.message_type = Message.Type.LOCKED_FILE
+            message.save(update_fields=['message_type'])
+
         return message
-
-    def to_representation(self, instance):
-        return MessageSerializer(instance, context=self.context).data
-
-
-class RoomMembershipSerializer(serializers.ModelSerializer):
-    user = PublicUserSerializer(read_only=True)
-
-    class Meta:
-        model = RoomMembership
-        fields = ("user", "role", "muted", "last_read_at", "joined_at")
-        read_only_fields = fields
 
 
 class ChatRoomSerializer(serializers.ModelSerializer):
-    memberships = RoomMembershipSerializer(many=True, read_only=True)
-    display_title = serializers.SerializerMethodField()
+    participants = ChatUserSerializer(many=True, read_only=True)
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
     is_pinned = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = (
-            "id",
-            "title",
-            "display_title",
-            "is_group",
-            "is_support",
-            "is_garant_chat",
-            "avatar",
-            "memberships",
-            "last_message",
-            "unread_count",
-            "is_pinned",
-            "created_at",
-            "updated_at",
-        )
-        read_only_fields = ("id", "created_at", "updated_at")
+        fields = [
+            'id', 'title', 'is_group', 'participants',
+            'last_message', 'unread_count', 'is_pinned',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = fields
 
-    def get_display_title(self, obj) -> str:
-        request = self.context.get("request")
-        return obj.display_title_for(request.user) if request else obj.title
+    def get_title(self, obj):
+        if obj.title:
+            return obj.title
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            other = obj.participants.exclude(id=request.user.id).first()
+            if other:
+                return other.username
+        return "Диалог"
 
     def get_last_message(self, obj):
-        message = obj.messages.filter(deleted_for_all=False).order_by("-created_at").first()
-        return MessageSerializer(message, context=self.context).data if message else None
+        msg = obj.messages.order_by('-created_at').first()
+        if not msg:
+            return None
+        return MessageSerializer(msg, context=self.context).data
 
-    def get_unread_count(self, obj) -> int:
-        request = self.context.get("request")
-        if not request:
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
             return 0
-        membership = obj.memberships.filter(user=request.user).first()
-        if membership is None:
-            return 0
-        queryset = obj.messages.exclude(sender=request.user).filter(deleted_for_all=False)
-        if membership.last_read_at:
-            queryset = queryset.filter(created_at__gt=membership.last_read_at)
-        return queryset.count()
+        membership = RoomMembership.objects.filter(room=obj, user=request.user).first()
+        if not membership or not membership.last_read_at:
+            return obj.messages.exclude(sender=request.user).count()
+        return obj.messages.exclude(sender=request.user).filter(created_at__gt=membership.last_read_at).count()
 
-    def get_is_pinned(self, obj) -> bool:
-        request = self.context.get("request")
-        return bool(request) and PinnedChat.objects.filter(user=request.user, room=obj).exists()
+    def get_is_pinned(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return PinnedChat.objects.filter(room=obj, user=request.user).exists()
+        return False
 
 
 class ChatRoomCreateSerializer(serializers.Serializer):
     participant_usernames = serializers.ListField(
-        child=serializers.CharField(), allow_empty=False, max_length=100
+        child=serializers.CharField(), required=True, allow_empty=False
     )
-    title = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    title = serializers.CharField(required=False, allow_blank=True, default='')
     is_group = serializers.BooleanField(default=False)
 
-    def validate_participant_usernames(self, value):
-        request = self.context["request"]
-        users = list(User.objects.filter(username__in=value))
-        if len(users) != len(set(value)):
-            raise serializers.ValidationError("One or more usernames do not exist.")
-        blocked = BlockedUser.objects.filter(
-            models.Q(blocker=request.user, blocked__in=users)
-            | models.Q(blocker__in=users, blocked=request.user)
-        ).exists()
-        if blocked:
-            raise serializers.ValidationError("Этот пользователь недоступен для чата.")
-        self.context["participants"] = users
-        return value
 
-    @transaction.atomic
-    def create(self, validated_data):
-        request = self.context["request"]
-        participants = self.context["participants"]
-        is_group = validated_data.get("is_group") or len(participants) > 1
-
-        if not is_group:
-            existing = (
-                ChatRoom.objects.filter(is_group=False, participants=request.user)
-                .filter(participants=participants[0])
-                .first()
-            )
-            if existing:
-                return existing
-
-        room = ChatRoom.objects.create(
-            title=validated_data.get("title", ""),
-            is_group=is_group,
-            created_by=request.user,
-        )
-        RoomMembership.objects.create(room=room, user=request.user, role=RoomMembership.Role.ADMIN)
-        for user in participants:
-            if user != request.user:
-                RoomMembership.objects.get_or_create(room=room, user=user)
-        return room
-
-    def to_representation(self, instance):
-        return ChatRoomSerializer(instance, context=self.context).data
+class PinMessageSerializer(serializers.Serializer):
+    is_pinned = serializers.BooleanField(default=True)
 
 
 class PinnedChatSerializer(serializers.ModelSerializer):
@@ -246,43 +175,5 @@ class PinnedChatSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PinnedChat
-        fields = ("id", "room", "order", "created_at")
-        read_only_fields = ("id", "room", "created_at")
-
-
-class SupportTicketSerializer(serializers.ModelSerializer):
-    opened_by = PublicUserSerializer(read_only=True)
-    room = ChatRoomSerializer(read_only=True)
-
-    class Meta:
-        model = SupportTicket
-        fields = ("id", "room", "opened_by", "subject", "status", "assigned_to", "created_at", "closed_at")
-        read_only_fields = ("id", "room", "opened_by", "status", "assigned_to", "created_at", "closed_at")
-
-
-class SupportTicketCreateSerializer(serializers.Serializer):
-    subject = serializers.CharField(max_length=200)
-    message = serializers.CharField(max_length=4000)
-
-    @transaction.atomic
-    def create(self, validated_data):
-        request = self.context["request"]
-        room = ChatRoom.objects.create(
-            title=f"Support: {validated_data['subject']}",
-            is_support=True,
-            created_by=request.user,
-        )
-        RoomMembership.objects.create(room=room, user=request.user)
-        for staff in User.objects.filter(is_staff=True, is_active=True)[:5]:
-            RoomMembership.objects.get_or_create(
-                room=room, user=staff, defaults={"role": RoomMembership.Role.SUPPORT}
-            )
-        message = Message(room=room, sender=request.user)
-        message.set_plaintext(validated_data["message"])
-        message.save()
-        return SupportTicket.objects.create(
-            room=room, opened_by=request.user, subject=validated_data["subject"]
-        )
-
-    def to_representation(self, instance):
-        return SupportTicketSerializer(instance, context=self.context).data
+        fields = ['id', 'room', 'created_at']
+        read_only_fields = fields

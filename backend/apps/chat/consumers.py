@@ -1,4 +1,4 @@
-"""Realtime chat consumer: messaging, deletions, pins, typing and receipts."""
+"""Realtime chat consumer with camera toggle signaling."""
 import json
 import logging
 from typing import Optional
@@ -13,12 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
-    """WebSocket endpoint at ``/ws/chat/<room_id>/``.
-
-    Authentication is performed by ``JWTAuthMiddleware`` which reads the access
-    token from ``?token=``, the ``Authorization`` header or the WS subprotocol.
-    Message bodies are encrypted with PyNaCl before being persisted.
-    """
+    """WebSocket endpoint at /ws/chat/<room_id>/."""
 
     async def connect(self):
         self.user = self.scope.get("user")
@@ -52,6 +47,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             "typing": self.handle_typing,
             "read_receipt": self.handle_read_receipt,
             "unlock_file": self.handle_unlock_file,
+            # WebRTC Signaling actions
+            "call_initiate": self.handle_call_initiate,
+            "call_accept": self.handle_call_accept,
+            "call_decline": self.handle_call_decline,
+            "call_end": self.handle_call_end,
+            "call_camera_toggle": self.handle_camera_toggle,
+            "call_offer": self.handle_call_relay,
+            "call_answer": self.handle_call_relay,
+            "call_ice_candidate": self.handle_call_relay,
         }
         handler = handlers.get(action)
         if handler is None:
@@ -59,12 +63,122 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
         try:
             await handler(content)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             logger.exception("chat action %s failed", action)
             await self.send_json({"type": "error", "detail": str(exc)})
 
     # ------------------------------------------------------------------
-    # Actions
+    # WebRTC Signaling Handlers
+    # ------------------------------------------------------------------
+    async def handle_call_initiate(self, content):
+        avatar_url = await self.get_user_avatar_url()
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "chat.call_incoming",
+                "caller_id": str(self.user.id),
+                "caller_username": str(self.user.username),
+                "caller_avatar": avatar_url,
+                "caller_client_id": content.get("client_id"),
+                "is_video": bool(content.get("is_video", False)),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def handle_call_accept(self, content):
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "chat.call_accepted",
+                "user_id": str(self.user.id),
+                "accepted_client_id": content.get("client_id"),
+                "target_client_id": content.get("target_client_id"),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def handle_call_decline(self, content):
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "chat.call_declined",
+                "user_id": str(self.user.id),
+                "declined_client_id": content.get("client_id"),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def handle_call_end(self, content):
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "chat.call_ended",
+                "user_id": str(self.user.id),
+                "ended_client_id": content.get("client_id"),
+                "target_client_id": content.get("target_client_id"),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def handle_camera_toggle(self, content):
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "chat.call_camera_toggle",
+                "sender_id": str(self.user.id),
+                "sender_client_id": content.get("client_id"),
+                "target_client_id": content.get("target_client_id"),
+                "is_camera_on": bool(content.get("is_camera_on", False)),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def handle_call_relay(self, content):
+        action = content.get("action")
+        event_map = {
+            "call_offer": "chat.call_offer",
+            "call_answer": "chat.call_answer",
+            "call_ice_candidate": "chat.call_ice_candidate",
+        }
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": event_map[action],
+                "sender_id": str(self.user.id),
+                "sender_client_id": content.get("client_id"),
+                "target_client_id": content.get("target_client_id"),
+                "payload": content.get("payload"),
+                "room_id": str(self.room_id),
+            },
+        )
+
+    async def chat_call_incoming(self, event):
+        if event["caller_id"] != str(self.user.id):
+            await self.send_json(event)
+
+    async def chat_call_accepted(self, event):
+        await self.send_json(event)
+
+    async def chat_call_declined(self, event):
+        await self.send_json(event)
+
+    async def chat_call_ended(self, event):
+        await self.send_json(event)
+
+    async def chat_call_camera_toggle(self, event):
+        await self.send_json(event)
+
+    async def chat_call_offer(self, event):
+        await self.send_json(event)
+
+    async def chat_call_answer(self, event):
+        await self.send_json(event)
+
+    async def chat_call_ice_candidate(self, event):
+        await self.send_json(event)
+
+    # ------------------------------------------------------------------
+    # Message Actions
     # ------------------------------------------------------------------
     async def handle_send_message(self, content):
         body = (content.get("content") or "").strip()
@@ -146,9 +260,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         result = await self.unlock_file(content.get("message_id"))
         await self.send_json({"type": "chat.file_unlocked", **result})
 
-    # ------------------------------------------------------------------
-    # Group event fan-out
-    # ------------------------------------------------------------------
     async def chat_message(self, event):
         message = event["message"]
         if message.get("locked") and message.get("sender_id") != str(self.user.id):
@@ -181,6 +292,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     @database_sync_to_async
     def is_participant(self) -> bool:
         return RoomMembership.objects.filter(room_id=self.room_id, user=self.user).exists()
+
+    @database_sync_to_async
+    def get_user_avatar_url(self) -> Optional[str]:
+        if hasattr(self.user, "avatar") and self.user.avatar:
+            try:
+                return self.user.avatar.url
+            except Exception:
+                return str(self.user.avatar)
+        return None
 
     @database_sync_to_async
     def create_message(self, body, message_type, reply_to_id=None, media_meta=None, locked=None) -> dict:
@@ -307,6 +427,3 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 message["content"][:120] if message["message_type"] == "text" else "Sent an attachment",
                 {"room_id": message["room_id"], "message_id": message["id"]},
             )
-
-    async def encode_json(self, content):  # pragma: no cover - trivial
-        return json.dumps(content, default=str)

@@ -1,29 +1,42 @@
-"""REST endpoints for the handshake coin economy."""
+"""REST endpoints for coins, fiat balances and instant CryptoPay check withdrawals."""
+import json
 import logging
+from decimal import Decimal
 
+from django.db import transaction as db_transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema
-from rest_framework import status, viewsets
+from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.coins.models import EXCHANGE_RATES, LEVEL_THRESHOLDS, CoinTransaction
+from apps.coins.models import (
+    EXCHANGE_RATES,
+    LEVEL_THRESHOLDS,
+    CoinTransaction,
+    DepositInvoice,
+    FiatBalance,
+    FiatTransaction,
+    WithdrawalRequest,
+)
 from apps.coins.serializers import (
     CoinBalanceSerializer,
     CoinTransactionSerializer,
+    DepositSerializer,
     DonationSerializer,
     ExchangeSerializer,
+    WithdrawSerializer,
 )
 from apps.coins.services import InsufficientCoins, InvalidExchange, exchange, level_progress, transfer
+from apps.garant.cryptopay import CryptoPayClient, CryptoPayError
 
 logger = logging.getLogger(__name__)
 
 
 @extend_schema(tags=["coins"])
 class CoinBalanceView(APIView):
-    """Current balances, level and progress toward the next level."""
-
     permission_classes = [IsAuthenticated]
     serializer_class = CoinBalanceSerializer
 
@@ -36,8 +49,6 @@ class CoinBalanceView(APIView):
 
 @extend_schema(tags=["coins"])
 class ExchangeView(APIView):
-    """Burn lower-rarity handshakes to mint a higher rarity."""
-
     permission_classes = [IsAuthenticated]
     serializer_class = ExchangeSerializer
 
@@ -51,23 +62,17 @@ class ExchangeView(APIView):
                 serializer.validated_data["target_rarity"],
                 serializer.validated_data.get("count", 1),
             )
-        except InsufficientCoins as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except InvalidExchange as exc:
+        except (InsufficientCoins, InvalidExchange) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
 
 
 @extend_schema(tags=["coins"])
 class TransactionHistoryView(ListAPIView):
-    """Paginated ledger of all coin movements involving the current user."""
-
     permission_classes = [IsAuthenticated]
     serializer_class = CoinTransactionSerializer
 
     def get_queryset(self):
-        from django.db.models import Q
-
         return (
             CoinTransaction.objects.filter(
                 Q(from_user=self.request.user) | Q(to_user=self.request.user)
@@ -79,8 +84,6 @@ class TransactionHistoryView(ListAPIView):
 
 @extend_schema(tags=["coins"])
 class DonationView(APIView):
-    """Send handshakes to another user (optionally inside a chat room)."""
-
     permission_classes = [IsAuthenticated]
     serializer_class = DonationSerializer
 
@@ -123,8 +126,6 @@ class DonationView(APIView):
 
 @extend_schema(tags=["coins"])
 class LevelInfoView(APIView):
-    """Static reference data: level ladder and exchange rates."""
-
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={200: dict})
@@ -134,14 +135,10 @@ class LevelInfoView(APIView):
 
 @extend_schema(tags=["coins"])
 class FiatBalanceListView(APIView):
-    """List all fiat balances for the authenticated user."""
-
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={200: list})
     def get(self, request):
-        from apps.coins.models import FiatBalance
-
         balances = FiatBalance.objects.filter(user=request.user).values(
             "currency", "amount", "updated_at"
         )
@@ -150,14 +147,10 @@ class FiatBalanceListView(APIView):
 
 @extend_schema(tags=["coins"])
 class FiatTransactionListView(APIView):
-    """List fiat transaction history for the authenticated user."""
-
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={200: list})
     def get(self, request):
-        from apps.coins.models import FiatTransaction
-
         txs = FiatTransaction.objects.filter(user=request.user).values(
             "id", "currency", "amount", "tx_type", "description", "created_at"
         )
@@ -166,16 +159,10 @@ class FiatTransactionListView(APIView):
 
 @extend_schema(tags=["coins"])
 class DepositView(APIView):
-    """Create a CryptoPay invoice for a user deposit."""
-
     permission_classes = [IsAuthenticated]
 
     @extend_schema(responses={201: dict})
     def post(self, request):
-        from apps.coins.models import DepositInvoice
-        from apps.coins.serializers import DepositSerializer
-        from apps.garant.cryptopay import CryptoPayClient, CryptoPayError
-
         serializer = DepositSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         amount = serializer.validated_data["amount"]
@@ -187,23 +174,21 @@ class DepositView(APIView):
         client = CryptoPayClient()
         if not client.is_configured:
             return Response(
-                {"detail": "Payment provider not configured."},
+                {"detail": "Платежный шлюз не настроен."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         try:
-            import json
-
             invoice = client.create_invoice(
                 amount=amount,
                 asset=currency,
-                description=f"GoldenShake deposit for @{request.user.username}",
+                description=f"Пополнение GoldenShake для @{request.user.username}",
                 payload=json.dumps(
                     {"deposit_invoice_id": str(invoice_obj.id), "user_id": str(request.user.id)}
                 ),
             )
         except CryptoPayError as exc:
             return Response(
-                {"detail": f"Payment provider error: {exc}"},
+                {"detail": f"Ошибка платежного провайдера: {exc}"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -224,62 +209,79 @@ class DepositView(APIView):
 
 @extend_schema(tags=["coins"])
 class WithdrawView(APIView):
-    """Submit a withdrawal request (processed manually by staff)."""
+    """Instant withdrawal by generating a CryptoPay Check."""
 
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={201: dict})
+    @extend_schema(responses={200: dict})
     def post(self, request):
-        from apps.coins.models import FiatBalance, WithdrawalRequest
-        from apps.coins.serializers import WithdrawSerializer
-
         serializer = WithdrawSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         amount = serializer.validated_data["amount"]
         currency = serializer.validated_data["currency"].upper()
-        network = serializer.validated_data.get("network", "TON")
-        wallet = serializer.validated_data["wallet"]
 
-        from django.db import transaction as db_transaction
+        client = CryptoPayClient()
+        if not client.is_configured:
+            return Response(
+                {"detail": "Платежный шлюз не настроен."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
+        # 1. Проверяем баланс пользователя
+        balance = FiatBalance.objects.filter(user=request.user, currency=currency).first()
+        available = balance.amount if balance else Decimal("0.00")
+        if available < amount:
+            return Response(
+                {"detail": f"Недостаточно средств на балансе: доступно {available} {currency}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 2. Вызываем CryptoPay createCheck
+        try:
+            check_data = client.create_check(asset=currency, amount=amount)
+        except CryptoPayError as exc:
+            logger.error("Failed to create CryptoPay check: %s", exc)
+            return Response(
+                {"detail": f"Ошибка создания чека CryptoPay: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        check_url = check_data.get("bot_check_url") or check_data.get("check_url", "")
+        check_id = str(check_data.get("check_id", ""))
+
+        # 3. Атомарно списываем баланс после успешного создания чека
         with db_transaction.atomic():
-            balance = FiatBalance.objects.select_for_update().filter(
-                user=request.user, currency=currency
-            ).first()
-            available = balance.amount if balance else 0
-            if available < amount:
-                return Response(
-                    {"detail": f"Недостаточно средств: доступно {available} {currency}."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if balance:
-                balance.amount = available - amount
-                balance.save(update_fields=["amount", "updated_at"])
+            locked_balance = FiatBalance.objects.select_for_update().get(user=request.user, currency=currency)
+            locked_balance.amount -= amount
+            locked_balance.save(update_fields=["amount", "updated_at"])
+
             withdrawal = WithdrawalRequest.objects.create(
                 user=request.user,
                 currency=currency,
-                network=network,
+                network="CryptoPay Check",
                 amount=amount,
-                wallet_address=wallet,
+                wallet_address=check_url or f"Check #{check_id}",
+                status=WithdrawalRequest.COMPLETED,
             )
-            from apps.coins.models import FiatTransaction
             FiatTransaction.objects.create(
                 user=request.user,
                 currency=currency,
                 amount=amount,
                 tx_type=FiatTransaction.WITHDRAWAL,
-                description=f"Вывод на {wallet} (сеть: {network})",
+                description=f"Чек CryptoPay #{check_id}",
             )
 
         logger.info(
-            "Withdrawal request #%s: %s %s (network: %s) for user %s to %s",
-            withdrawal.id, amount, currency, network, request.user.username, wallet,
+            "CryptoPay check created #%s: %s %s for user @%s url=%s",
+            check_id, amount, currency, request.user.username, check_url,
         )
+
         return Response(
             {
-                "detail": "Заявка на вывод принята и будет обработана в течение 24 часов.",
-                "id": withdrawal.id,
-                "status": withdrawal.status,
+                "detail": f"Чек на {amount} {currency} готов к получению!",
+                "check_url": check_url,
+                "amount": str(amount),
+                "currency": currency,
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )

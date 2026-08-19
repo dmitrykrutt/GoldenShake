@@ -1,4 +1,4 @@
-"""Handshake coin economy: rarities, balances, transactions and exchange rules."""
+"""Handshake coin economy: unique tokens, ownership history, ledger and fiat balances."""
 import uuid
 
 from django.conf import settings
@@ -20,7 +20,6 @@ RARITY_CHOICES = (
 
 RARITY_ORDER = [RARITY_GREEN, RARITY_BLUE, RARITY_PURPLE, RARITY_RED, RARITY_GOLD]
 
-# How many coins of the lower rarity are burned to mint one of the higher rarity.
 EXCHANGE_RATES = {
     "blue": {"from": "green", "amount": 50},
     "purple": {"from": "blue", "amount": 10},
@@ -28,8 +27,6 @@ EXCHANGE_RATES = {
     "gold": {"from": "red", "amount": 10},
 }
 
-# Level ladder. Each entry: the rarity bucket that is counted and the minimum
-# amount of that rarity required to hold the level.
 LEVEL_THRESHOLDS = {
     "green": {"rarity": RARITY_GREEN, "min": 0},
     "green_plus": {"rarity": RARITY_GREEN, "min": 100},
@@ -43,7 +40,6 @@ LEVEL_THRESHOLDS = {
     "gold_plus": {"rarity": RARITY_GOLD, "min": 10},
 }
 
-# Ordered from the highest to the lowest level for resolution.
 LEVEL_ORDER = [
     "gold_plus",
     "gold",
@@ -57,13 +53,12 @@ LEVEL_ORDER = [
     "green",
 ]
 
-# Coins granted for platform actions.
 INVITE_REWARD_AMOUNT = 10
 DAILY_ACTIVITY_REWARD = 1
 
 
 class HandshakeCoin(models.Model):
-    """A user's balance for one coin rarity."""
+    """Aggregate cached balance for backwards compatibility."""
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="coins"
@@ -79,6 +74,60 @@ class HandshakeCoin(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}: {self.amount} {self.rarity}"
+
+
+class HandshakeToken(models.Model):
+    """Individual registered handshake token with unique UUID and provenance."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rarity = models.CharField(max_length=16, choices=RARITY_CHOICES, default=RARITY_GREEN, db_index=True)
+    creator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="minted_handshakes",
+    )
+    current_owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_handshakes",
+        db_index=True,
+    )
+    is_burned = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "coins_handshake_token"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["current_owner", "rarity", "is_burned"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Token {self.id} ({self.rarity}) owned by {self.current_owner_id}"
+
+
+class TokenOwnershipHistory(models.Model):
+    """Tracks unique historical holders of each handshake token."""
+
+    token = models.ForeignKey(HandshakeToken, on_delete=models.CASCADE, related_name="history")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="held_handshakes_history"
+    )
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "coins_token_ownership_history"
+        unique_together = ("token", "user")
+        indexes = [
+            models.Index(fields=["user", "token"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Token {self.token_id} held by User {self.user_id}"
 
 
 class CoinTransaction(models.Model):
@@ -149,12 +198,10 @@ class InviteReward(models.Model):
 
 
 class FiatBalance(models.Model):
-    """Per-currency fiat balance for a user (credited from garant deals and deposits)."""
-
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="fiat_balances"
     )
-    currency = models.CharField(max_length=10)  # e.g. 'USD', 'USDT', 'RUB'
+    currency = models.CharField(max_length=10)
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -168,8 +215,6 @@ class FiatBalance(models.Model):
 
 
 class FiatTransaction(models.Model):
-    """Immutable fiat ledger entry."""
-
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"
     DEAL_INCOME = "deal_income"
@@ -199,8 +244,6 @@ class FiatTransaction(models.Model):
 
 
 class DepositInvoice(models.Model):
-    """A CryptoPay invoice created for a user deposit."""
-
     PENDING = "pending"
     PAID = "paid"
     EXPIRED = "expired"
@@ -227,8 +270,6 @@ class DepositInvoice(models.Model):
 
 
 class WithdrawalRequest(models.Model):
-    """A pending withdrawal request from a user."""
-
     PENDING = "pending"
     COMPLETED = "completed"
     REJECTED = "rejected"
@@ -242,7 +283,7 @@ class WithdrawalRequest(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="withdrawal_requests"
     )
     currency = models.CharField(max_length=10)
-    network = models.CharField(max_length=20, default="TON")  # e.g. 'TRC20', 'TON'
+    network = models.CharField(max_length=20, default="TON")
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     wallet_address = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING)

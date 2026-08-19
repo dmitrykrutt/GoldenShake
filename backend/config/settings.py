@@ -43,6 +43,7 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     "apps.accounts",
     "apps.chat",
+    "apps.social.apps.SocialConfig",
     "apps.calls",
     "apps.coins",
     "apps.garant",
