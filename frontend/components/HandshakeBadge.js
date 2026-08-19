@@ -1,31 +1,24 @@
-import { LEVEL_META, RARITY_META } from '../lib/constants';
+import HandshakeIcon from './HandshakeIcon';
+import { RARITY_META } from '../lib/constants';
 
-const SIZES = {
-  sm: 'h-6 px-2 text-[10px]',
-  md: 'h-7 px-2.5 text-[11px]',
-  lg: 'h-9 px-4 text-sm',
-};
+export default function HandshakeBadge({ level = 'green', size = 'sm' }) {
+  const meta = RARITY_META[level?.replace('_plus', '')] || RARITY_META.green;
+  const isPlus = String(level).includes('plus');
 
-export default function HandshakeBadge({ level = 'green', size = 'md', showLabel = true }) {
-  const meta = LEVEL_META[level] || LEVEL_META.green;
-  const rarity = RARITY_META[meta.rarity];
-  const isPlus = level.endsWith('_plus');
+  const sizeClasses = {
+    xs: 'text-xs',
+    sm: 'text-sm',
+    md: 'text-base',
+    lg: 'text-lg',
+  }[size] || 'text-sm';
 
   return (
     <span
-      title={meta.label}
-      className={`badge ${SIZES[size] || SIZES.md} border`}
-      style={{
-        color: rarity.color,
-        borderColor: `${rarity.color}55`,
-        backgroundColor: `${rarity.color}1A`,
-        boxShadow: isPlus ? `0 0 12px ${rarity.color}55` : 'none',
-      }}
+      className="inline-flex items-center gap-0.5"
+      title={`${meta.label}${isPlus ? ' +' : ''}`}
     >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
-        <path d="M11 4 7.6 7.4a2 2 0 0 0 0 2.8l.6.6 3-3 1.4 1.4-4.2 4.3a1 1 0 0 0 0 1.4l.3.3a1 1 0 0 0 1.4 0l4.3-4.2 1 1-3.6 3.6a1 1 0 0 0 0 1.4l.3.3a1 1 0 0 0 1.4 0l5.1-5.1a2 2 0 0 0 0-2.8L13.9 4A2 2 0 0 0 11 4Z" />
-      </svg>
-      {showLabel && <span className="font-semibold">{meta.label}</span>}
+      <HandshakeIcon className={sizeClasses} color={meta.color} />
+      {isPlus && <span className="text-[11px] font-bold leading-none" style={{ color: meta.color }}>+</span>}
     </span>
   );
 }

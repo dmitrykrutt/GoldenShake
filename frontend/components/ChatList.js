@@ -1,124 +1,108 @@
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
-import { MapPinIcon, ShieldCheckIcon, UsersIcon } from '@heroicons/react/24/solid';
+import {
+  MapPinIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+  TrashIcon,
+  NoSymbolIcon,
+} from '@heroicons/react/24/solid';
 import { formatDate } from '../lib/constants';
 import Username from './Username';
 
 function Avatar({ room, peer }) {
-  const image = peer?.avatar || room.avatar;
-  const label = peer?.username || room.display_title;
+  const image = peer?.avatar || room?.avatar;
+  const label = peer?.username || room?.display_title || '?';
   if (image) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={image}
         alt={label}
-        className="h-12 w-12 rounded-full object-cover ring-1 ring-gold/30"
+        className="h-12 w-12 rounded-full object-cover ring-1 ring-gold/30 shrink-0"
       />
     );
   }
   return (
-    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-graphite-light font-display text-base font-bold text-gold ring-1 ring-gold/20">
-      {(room.display_title || '#').slice(0, 2).toUpperCase()}
-    </div>
-  );
-}
-
-function ContextMenu({ x, y, onDelete, onBlock, onClose }) {
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-[180px] rounded-xl border border-white/10 bg-graphite shadow-glass backdrop-blur-xl"
-      style={{ top: y, left: x }}
-    >
-      <button
-        type="button"
-        onClick={onDelete}
-        className="flex w-full items-center gap-2 rounded-t-xl px-4 py-3 text-left text-sm font-semibold text-red-400 hover:bg-red-500/10"
-      >
-        Удалить чат
-      </button>
-      <button
-        type="button"
-        onClick={onBlock}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-neutral-300 hover:bg-white/5"
-      >
-        Заблокировать пользователя
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        className="flex w-full items-center gap-2 rounded-b-xl px-4 py-3 text-left text-sm text-neutral-500 hover:bg-white/5"
-      >
-        Закрыть
-      </button>
+    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-graphite font-display text-base font-bold text-gold ring-1 ring-gold/20">
+      {(room?.display_title || '#').slice(0, 2).toUpperCase()}
     </div>
   );
 }
 
 function ChatListItem({ room, activeId, currentUserId, onDelete, onBlock }) {
-  const [contextMenu, setContextMenu] = useState(null);
-  const active = String(room.id) === String(activeId);
-  const preview = room.last_message?.content || 'Зашифрованное сообщение';
-  const peer = room.is_group
+  const active = String(room?.id) === String(activeId);
+  const preview = room?.last_message?.content || (room?.last_message?.message_type ? 'Медиа сообщение' : 'Диалог зашифрован');
+  const peer = room?.is_group
     ? null
-    : room.memberships?.find((member) => String(member.user?.id) !== String(currentUserId))?.user;
+    : room?.memberships?.find((member) => String(member.user?.id) !== String(currentUserId))?.user;
 
-  const handleContextMenu = (event) => {
-    event.preventDefault();
-    setContextMenu({ x: event.clientX, y: event.clientY });
+  const handleDelete = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDelete?.(room);
+  };
+
+  const handleBlock = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onBlock?.(room);
   };
 
   return (
-    <li className="relative" onContextMenu={handleContextMenu}>
+    <li>
       <Link
         href={`/chats/${room.id}`}
-        className={`flex items-center gap-3 px-4 py-3 transition ${active ? 'bg-gold/10' : 'hover:bg-white/5'}`}
+        className={`group flex items-center gap-3 px-4 py-3.5 transition ${active ? 'bg-gold/10' : 'hover:bg-white/5'}`}
       >
         <Avatar room={room} peer={peer} />
+
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-semibold text-white">
               <Username user={peer} username={room.display_title || 'Чат'} />
             </span>
-            {room.is_garant_chat && <ShieldCheckIcon className="h-3.5 w-3.5 text-gold" />}
-            {room.is_group && <UsersIcon className="h-3.5 w-3.5 text-neutral-500" />}
-            {room.is_pinned && <MapPinIcon className="h-3.5 w-3.5 text-gold/70" />}
+            {room.is_garant_chat && <ShieldCheckIcon className="h-3.5 w-3.5 text-gold shrink-0" />}
+            {room.is_group && <UsersIcon className="h-3.5 w-3.5 text-neutral-500 shrink-0" />}
+            {room.is_pinned && <MapPinIcon className="h-3.5 w-3.5 text-gold/70 shrink-0" />}
           </div>
-          <p className="truncate text-xs text-neutral-500">{preview}</p>
+          <p className="truncate text-xs text-neutral-500 mt-0.5">{preview}</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-[10px] text-neutral-600">
+
+        {/* Кнопки быстрых действий */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!room.is_group && peer && (
+            <button
+              type="button"
+              onClick={handleBlock}
+              title="Заблокировать пользователя"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/25 transition opacity-80 group-hover:opacity-100"
+            >
+              <NoSymbolIcon className="h-4 w-4" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleDelete}
+            title="Удалить чат"
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/25 transition opacity-80 group-hover:opacity-100"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Время и непрочитанные */}
+        <div className="flex flex-col items-end gap-1 shrink-0 ml-1">
+          <span className="text-[10px] text-neutral-500 font-medium">
             {formatDate(room.last_message?.created_at || room.updated_at)}
           </span>
           {room.unread_count > 0 && (
-            <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-gold px-1.5 text-[10px] font-bold text-black">
+            <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-gold px-1.5 text-[10px] font-bold text-black shadow-gold">
               {room.unread_count > 99 ? '99+' : room.unread_count}
             </span>
           )}
         </div>
       </Link>
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onDelete={() => { setContextMenu(null); onDelete?.(room); }}
-          onBlock={() => { setContextMenu(null); onBlock?.(room); }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
     </li>
   );
 }
@@ -155,84 +139,5 @@ export default function ChatList({ rooms = [], activeId = null, loading = false,
         />
       ))}
     </ul>
-  );
-}
-import { MapPinIcon, ShieldCheckIcon, UsersIcon } from '@heroicons/react/24/solid';
-import { formatDate } from '../lib/constants';
-import Username from './Username';
-
-function Avatar({ room, peer }) {
-  const image = peer?.avatar || room.avatar;
-  const label = peer?.username || room.display_title;
-  if (image) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return (
-      <img
-        src={image}
-        alt={label}
-        className="h-12 w-12 rounded-full object-cover ring-1 ring-gold/30"
-      />
-    );
-  }
-  return (
-    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-graphite-light font-display text-base font-bold text-gold ring-1 ring-gold/20">
-      {(room.display_title || '#').slice(0, 2).toUpperCase()}
-    </div>
-  );
-}
-
-function ChatListItem({ room, activeId, currentUserId, onDelete }) {
-  const [startX, setStartX] = useState(null);
-  const [revealed, setRevealed] = useState(false);
-  const active = String(room.id) === String(activeId);
-  const preview = room.last_message?.content || 'Encrypted message';
-  const peer = room.is_group
-    ? null
-    : room.memberships?.find((member) => String(member.user?.id) !== String(currentUserId))?.user;
-
-  return (
-    <li
-      onTouchStart={(event) => setStartX(event.touches[0].clientX)}
-      onTouchMove={(event) => {
-        if (startX === null) return;
-        if (startX - event.touches[0].clientX > 50) setRevealed(true);
-        if (event.touches[0].clientX - startX > 50) setRevealed(false);
-      }}
-      onTouchEnd={() => setStartX(null)}
-      className="relative overflow-hidden"
-    >
-      <div className={`absolute inset-y-0 right-0 flex items-center bg-red-600 px-4 transition ${revealed ? 'translate-x-0' : 'translate-x-full'}`}>
-        <button type="button" onClick={() => onDelete?.(room)} className="text-sm font-semibold text-white">
-          Удалить
-        </button>
-      </div>
-      <Link
-        href={`/chats/${room.id}`}
-        className={`flex items-center gap-3 px-4 py-3 transition ${active ? 'bg-gold/10' : 'hover:bg-white/5'} ${revealed ? '-translate-x-20' : 'translate-x-0'}`}
-      >
-        <Avatar room={room} peer={peer} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-semibold text-white">
-              <Username user={peer} username={room.display_title || 'Chat'} />
-            </span>
-            {room.is_garant_chat && <ShieldCheckIcon className="h-3.5 w-3.5 text-gold" />}
-            {room.is_group && <UsersIcon className="h-3.5 w-3.5 text-neutral-500" />}
-            {room.is_pinned && <MapPinIcon className="h-3.5 w-3.5 text-gold/70" />}
-          </div>
-          <p className="truncate text-xs text-neutral-500">{preview}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-[10px] text-neutral-600">
-            {formatDate(room.last_message?.created_at || room.updated_at)}
-          </span>
-          {room.unread_count > 0 && (
-            <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-gold px-1.5 text-[10px] font-bold text-black">
-              {room.unread_count > 99 ? '99+' : room.unread_count}
-            </span>
-          )}
-        </div>
-      </Link>
-    </li>
   );
 }

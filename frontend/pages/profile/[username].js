@@ -1,82 +1,49 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
+  Cog6ToothIcon,
   ChatBubbleLeftRightIcon,
+  ShieldCheckIcon,
   GiftIcon,
-  HeartIcon,
-  LinkIcon,
-  LockClosedIcon,
-  PaperClipIcon,
-  XMarkIcon,
+  NoSymbolIcon,
+  QrCodeIcon,
 } from '@heroicons/react/24/outline';
-import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
 import Layout from '../../components/Layout';
 import HandshakeBadge from '../../components/HandshakeBadge';
-import CoinDonation from '../../components/CoinDonation';
 import Username from '../../components/Username';
-import MediaViewer from '../../components/MediaViewer';
+import CoinDonation from '../../components/CoinDonation';
 import api, { apiError } from '../../lib/api';
-import { useRequireAuth } from '../../lib/auth';
-import { formatDateTime } from '../../lib/constants';
-import { resolveTheme } from '../../lib/themes';
+import { useAuth } from '../../lib/auth';
 
 export default function ProfilePage() {
   const router = useRouter();
   const { username } = router.query;
-  const { user } = useRequireAuth();
+  const { user: currentUser } = useAuth();
 
   const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [balances, setBalances] = useState({});
-  const [showDonation, setShowDonation] = useState(false);
-  const [newPost, setNewPost] = useState('');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [blocked, setBlocked] = useState(false);
-  const [attachFiles, setAttachFiles] = useState([]);
-  const [attachPreviews, setAttachPreviews] = useState([]);
-  const [attachError, setAttachError] = useState('');
-  const [lightboxItems, setLightboxItems] = useState(null);
-  const fileInputRef = useRef(null);
+  const [showDonation, setShowDonation] = useState(false);
+  const [balances, setBalances] = useState({});
+
+  const isOwn = currentUser && username && currentUser.username.toLowerCase() === username.toLowerCase();
 
   useEffect(() => {
-    const urls = attachFiles.map((f) =>
-      f.type.startsWith('image/') || f.type.startsWith('video/') ? URL.createObjectURL(f) : null
-    );
-    setAttachPreviews(urls);
-    return () => {
-      urls.forEach((u) => { if (u) URL.revokeObjectURL(u); });
-    };
-  }, [attachFiles]);
-
-  const isSelf = user && profile && user.username === profile.username;
-
-  const load = useCallback(async () => {
     if (!username) return;
-    try {
-      const [{ data }, blockedRes] = await Promise.all([
-        api.get(`/accounts/profiles/${username}/`),
-        api.get('/accounts/profiles/blocked/'),
-      ]);
-      setProfile(data);
-      const blockedUsers = Array.isArray(blockedRes.data) ? blockedRes.data : [];
-      setBlocked(blockedUsers.some((item) => item.blocked?.username === username));
-      if (!data.private_profile || data.username === user?.username) {
-        const postsRes = await api.get(`/posts/posts/?author=${username}`);
-        setPosts(
-          Array.isArray(postsRes.data) ? postsRes.data : postsRes.data.results || []
-        );
-      }
-    } catch (err) {
-      setError(apiError(err, 'Профиль не найден.'));
-    }
-  }, [username, user?.username]);
+    setLoading(true);
+    setError('');
 
-  useEffect(() => {
-    if (user) {
-      load();
-      api.get('/coins/balance/').then(({ data }) => setBalances(data.balances || {}));
+    api
+      .get(`/accounts/profiles/${username}/`)
+      .then(({ data }) => setProfile(data))
+      .catch((err) => setError(apiError(err, 'Пользователь не найден')))
+      .finally(() => setLoading(false));
+
+    if (currentUser) {
+      api.get('/coins/balance/').then(({ data }) => setBalances(data.balances || {})).catch(() => {});
     }
-  }, [user, load]);
+  }, [username, currentUser]);
 
   const startChat = async () => {
     try {
@@ -85,375 +52,148 @@ export default function ProfilePage() {
       });
       router.push(`/chats/${data.id}`);
     } catch (err) {
-      setError(apiError(err, 'Не удалось открыть чат.'));
+      setError(apiError(err, 'Не удалось открыть диалог'));
     }
   };
 
-  const publish = async (event) => {
-    event.preventDefault();
-    if (!newPost.trim() && attachFiles.length === 0) return;
+  const blockUser = async () => {
+    if (!window.confirm(`Заблокировать пользователя @${profile.username}?`)) return;
     try {
-      let data;
-      if (attachFiles.length > 0) {
-        const formData = new FormData();
-        formData.append('content', newPost.trim());
-        attachFiles.forEach((f) => formData.append('attachments', f));
-        const res = await api.post('/posts/posts/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-        data = res.data;
-      } else {
-        const res = await api.post('/posts/posts/', { content: newPost.trim() });
-        data = res.data;
-      }
-      setPosts((prev) => [data, ...prev]);
-      setNewPost('');
-      setAttachFiles([]);
+      await api.post(`/accounts/profiles/block/${encodeURIComponent(profile.username)}/`);
+      router.push('/chats');
     } catch (err) {
-      setError(apiError(err, 'Не удалось опубликовать запись.'));
+      setError(apiError(err, 'Ошибка блокировки'));
     }
   };
 
-  const handleFileChange = (e) => {
-    setAttachError('');
-    const selected = Array.from(e.target.files || []);
-    const combined = [...attachFiles, ...selected];
-    if (combined.length > 5) {
-      setAttachError('Максимум 5 файлов на публикацию.');
-      return;
-    }
-    const totalSize = combined.reduce((acc, f) => acc + f.size, 0);
-    if (totalSize > 100 * 1024 * 1024) {
-      setAttachError('Общий размер файлов не должен превышать 100 МБ.');
-      return;
-    }
-    setAttachFiles(combined);
-    e.target.value = '';
-  };
-
-  const removeAttachFile = (index) => {
-    setAttachFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const toggleLike = async (post) => {
-    try {
-      await api.post(`/posts/posts/${post.id}/like/`);
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? {
-                ...p,
-                is_liked: !p.is_liked,
-                like_count: p.like_count + (p.is_liked ? -1 : 1),
-              }
-            : p
-        )
-      );
-    } catch (err) {
-      setError(apiError(err, 'Не удалось поставить лайк.'));
-    }
-  };
-
-  const toggleBlock = async () => {
-    try {
-      if (blocked) {
-        await api.delete(`/accounts/profiles/block/${profile.username}/`);
-        setBlocked(false);
-      } else {
-        const confirmed = window.confirm(`Заблокировать @${profile.username}?`);
-        if (!confirmed) return;
-        await api.post(`/accounts/profiles/block/${profile.username}/`);
-        setBlocked(true);
-      }
-    } catch (err) {
-      setError(apiError(err, 'Не удалось обновить блокировку.'));
-    }
-  };
-
-  if (!profile) {
+  if (loading) {
     return (
-      <Layout title="Профиль">
-        {error ? (
-          <p className="text-sm text-red-400">{error}</p>
-        ) : (
-          <div className="skeleton h-48 w-full" />
-        )}
+      <Layout title="Загрузка профиля…">
+        <div className="mx-auto max-w-md space-y-4 pt-10">
+          <div className="skeleton h-32 w-full rounded-3xl" />
+          <div className="skeleton h-24 w-full rounded-2xl" />
+        </div>
       </Layout>
     );
   }
 
-  const theme = resolveTheme(profile.theme_color);
+  if (error || !profile) {
+    return (
+      <Layout title="Профиль не найден">
+        <div className="mx-auto max-w-md text-center pt-16">
+          <p className="text-sm text-red-400">{error || 'Пользователь не найден'}</p>
+          <button type="button" onClick={() => router.back()} className="btn-dark mt-4 text-xs">
+            Вернуться назад
+          </button>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title={`@${profile.username}`}>
-      <div
-        className="card relative overflow-hidden"
-        style={{ borderColor: `${theme.primary}55`, background: `linear-gradient(180deg, ${theme.bg}, rgba(0,0,0,0.75))`, color: theme.primary }}
-      >
-        <div
-          className="absolute inset-x-0 top-0 h-24 opacity-20"
-          style={{
-            background: `linear-gradient(135deg, ${theme.primary}, ${theme.accent}, transparent)`,
-          }}
-        />
-        <div className="relative flex flex-wrap items-start gap-5">
-          {profile.avatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={profile.avatar}
-              alt={profile.username}
-              className="h-24 w-24 rounded-2xl object-cover ring-2 ring-gold/40"
-            />
-          ) : (
-            <div className="grid h-24 w-24 place-items-center rounded-2xl bg-graphite-light font-display text-3xl text-gold ring-2 ring-gold/20">
-              {profile.username.slice(0, 2).toUpperCase()}
-            </div>
-          )}
-
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl"><Username user={profile} withAt /></h1>
-              <HandshakeBadge level={profile.handshake_level || 'green'} showLabel={false} />
-              {profile.private_profile && (
-                <span className="badge border border-white/10 bg-black/40 px-2 py-0.5 text-neutral-400">
-                  <LockClosedIcon className="h-3 w-3" /> Private
-                </span>
+      <div className="mx-auto max-w-xl pb-16">
+        {/* Шапка профиля */}
+        <div className="card relative overflow-hidden p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              {profile.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profile.avatar}
+                  alt=""
+                  className="h-20 w-20 rounded-full object-cover ring-2 ring-gold/40 shadow-xl"
+                />
+              ) : (
+                <div className="grid h-20 w-20 place-items-center rounded-full bg-graphite font-display text-2xl font-bold text-gold ring-2 ring-gold/30">
+                  {profile.username.slice(0, 2).toUpperCase()}
+                </div>
               )}
+
+              <div>
+                <h1 className="text-xl font-display font-bold text-white flex items-center gap-2">
+                  <Username user={profile} />
+                </h1>
+                <p className="text-xs text-neutral-500">@{profile.username}</p>
+                {profile.handshake_level && (
+                  <div className="mt-2">
+                    <HandshakeBadge level={profile.handshake_level} size="sm" />
+                  </div>
+                )}
+              </div>
             </div>
 
-            {profile.bio && (
-              <p className="mt-3 max-w-2xl whitespace-pre-wrap text-sm text-neutral-300">
-                {profile.bio}
-              </p>
+            {/* Кнопка настроек для владельца профиля */}
+            {isOwn && (
+              <Link
+                href="/settings"
+                className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-neutral-300 hover:border-gold/40 hover:text-gold transition"
+              >
+                <Cog6ToothIcon className="h-4 w-4" />
+                <span>Настройки</span>
+              </Link>
             )}
-
-            {profile.social_links && Object.keys(profile.social_links).length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(profile.social_links).map(([label, url]) => (
-                  <a
-                    key={label}
-                    href={String(url)}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="badge border border-gold/25 bg-gold/10 px-2.5 py-1 text-gold hover:bg-gold/20"
-                  >
-                    <LinkIcon className="h-3 w-3" /> {label}
-                  </a>
-                ))}
-              </div>
-            )}
-
-            <p className="mt-3 text-[11px] text-neutral-600">
-              Joined {formatDateTime(profile.date_joined)}
-              {profile.is_online ? ' · online now' : ''}
-            </p>
           </div>
 
-          {!isSelf && (
-            <div className="flex flex-col gap-2">
-              <button type="button" onClick={startChat} className="btn-primary">
-                <ChatBubbleLeftRightIcon className="h-4 w-4" /> Сообщение
+          {profile.bio && (
+            <p className="mt-5 text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap border-t border-white/5 pt-4">
+              {profile.bio}
+            </p>
+          )}
+
+          {/* Кнопки действий с собеседником */}
+          {!isOwn && (
+            <div className="mt-6 flex flex-wrap gap-2.5 border-t border-white/5 pt-4">
+              <button
+                type="button"
+                onClick={startChat}
+                className="btn-primary flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <ChatBubbleLeftRightIcon className="h-4 w-4" /> Написать
               </button>
+
               <button
                 type="button"
                 onClick={() => setShowDonation(true)}
-                className="btn-ghost"
-                style={{ borderColor: `${theme.primary}55`, color: theme.primary }}
+                className="btn-dark py-2.5 px-4 text-xs font-semibold flex items-center gap-1.5 text-gold hover:text-gold"
               >
                 <GiftIcon className="h-4 w-4" /> Донат
               </button>
+
               <button
                 type="button"
-                onClick={toggleBlock}
-                className={`rounded-xl border px-4 py-3 text-sm font-semibold ${blocked ? 'border-emerald-500/40 text-emerald-300' : 'border-red-500/40 text-red-300'}`}
+                onClick={blockUser}
+                className="rounded-xl border border-red-500/20 bg-red-500/10 p-2.5 text-red-400 hover:bg-red-500/20 transition"
+                title="Заблокировать"
               >
-                {blocked ? 'Разблокировать' : 'Заблокировать'}
+                <NoSymbolIcon className="h-4 w-4" />
               </button>
             </div>
           )}
         </div>
-      </div>
 
-      {error && <p className="mt-4 text-xs text-red-400">{error}</p>}
-
-      {isSelf && (
-        <form onSubmit={publish} className="card mt-6">
-          <label className="label" htmlFor="post-body">
-            Новая запись
-          </label>
-          <textarea
-            id="post-body"
-            rows={3}
-            className="input resize-none"
-            value={newPost}
-            onChange={(event) => setNewPost(event.target.value)}
-            placeholder="Что у вас нового?"
-          />
-          {attachFiles.length > 0 && (
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {attachFiles.map((f, i) => {
-                const isImage = f.type.startsWith('image/');
-                const isVideo = f.type.startsWith('video/');
-                const url = attachPreviews[i];
-                return (
-                  <div key={i} className="relative rounded-lg overflow-hidden border border-white/10 bg-black/30">
-                    {isImage && url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={url} alt={f.name} className="h-24 w-full object-cover" />
-                    )}
-                    {isVideo && url && (
-                      // eslint-disable-next-line jsx-a11y/media-has-caption
-                      <video src={url} className="h-24 w-full object-cover" />
-                    )}
-                    {!isImage && !isVideo && (
-                      <div className="flex h-24 items-center justify-center p-2 text-xs text-neutral-400 text-center break-all">
-                        {f.name}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeAttachFile(i)}
-                      className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {attachError && <p className="mt-2 text-xs text-red-400">{attachError}</p>}
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-dark flex items-center gap-1.5 text-sm"
-              title="Прикрепить файл"
-            >
-              <PaperClipIcon className="h-4 w-4" />
-              Прикрепить
-            </button>
-            <button type="submit" className="btn-primary ml-auto">
-              Опубликовать
-            </button>
+        {/* Дополнительная статистика */}
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <div className="card p-4 text-center">
+            <ShieldCheckIcon className="mx-auto h-5 w-5 text-gold mb-1" />
+            <p className="text-xs text-neutral-500 font-semibold">Гарант-сделки</p>
+            <p className="text-lg font-bold text-white mt-0.5">{profile.deals_count || 0}</p>
           </div>
-        </form>
-      )}
+          <div className="card p-4 text-center">
+            <QrCodeIcon className="mx-auto h-5 w-5 text-gold mb-1" />
+            <p className="text-xs text-neutral-500 font-semibold">Репутация</p>
+            <p className="text-lg font-bold text-emerald-400 mt-0.5">{profile.reputation || '100%'}</p>
+          </div>
+        </div>
 
-      <div className="mt-6 space-y-4">
-        {posts.map((post) => (
-          <article key={post.id} className="card">
-            <div className="flex items-center gap-2 text-xs text-neutral-500">
-              <span className="font-medium text-gold">@{post.author?.username}</span>
-              <span>·</span>
-              <span>{formatDateTime(post.created_at)}</span>
-            </div>
-            <p className="mt-3 whitespace-pre-wrap text-sm text-neutral-200">{post.content}</p>
-            {post.media && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={post.media}
-                alt=""
-                className="mt-3 max-h-96 rounded-xl border border-white/10 object-cover"
-              />
-            )}
-            {post.attachments?.length > 0 && (
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {post.attachments.map((att, i) => {
-                  if (att.file_type === 'image') {
-                    return (
-                      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
-                      <img
-                        key={att.id}
-                        src={att.file}
-                        alt=""
-                        className="max-h-96 w-full rounded-xl border border-white/10 object-cover cursor-pointer"
-                        onClick={() =>
-                          setLightboxItems(
-                            post.attachments
-                              .filter((a) => a.file_type === 'image')
-                              .map((a) => ({ type: 'image', src: a.file }))
-                          )
-                        }
-                      />
-                    );
-                  }
-                  if (att.file_type === 'video') {
-                    return (
-                      // eslint-disable-next-line jsx-a11y/media-has-caption
-                      <video
-                        key={att.id}
-                        src={att.file}
-                        controls
-                        className="max-h-96 w-full rounded-xl border border-white/10 object-cover"
-                      />
-                    );
-                  }
-                  return (
-                    <a
-                      key={att.id}
-                      href={att.file}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-neutral-300 hover:text-gold"
-                    >
-                      <PaperClipIcon className="h-4 w-4 flex-shrink-0" />
-                      {att.file.split('/').pop()}
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-            <div className="mt-4 flex items-center gap-5 text-xs text-neutral-500">
-              <button
-                type="button"
-                onClick={() => toggleLike(post)}
-                className="flex items-center gap-1.5 hover:text-gold"
-              >
-                {post.is_liked ? (
-                  <HeartSolid className="h-4 w-4 text-gold" />
-                ) : (
-                  <HeartIcon className="h-4 w-4" />
-                )}
-                {post.like_count}
-              </button>
-              <span>{post.comment_count} комментариев</span>
-              <span>{post.share_count} репостов</span>
-            </div>
-          </article>
-        ))}
-        {!posts.length && !profile.private_profile && (
-          <p className="py-10 text-center text-sm text-neutral-600">Записей пока нет.</p>
-        )}
-        {profile.private_profile && !isSelf && (
-          <p className="py-10 text-center text-sm text-neutral-600">
-            Этот профиль приватный.
-          </p>
+        {showDonation && (
+          <CoinDonation
+            recipientUsername={profile.username}
+            balances={balances}
+            onClose={() => setShowDonation(false)}
+          />
         )}
       </div>
-
-      {lightboxItems && (
-        <MediaViewer items={lightboxItems} onClose={() => setLightboxItems(null)} />
-      )}
-
-      {showDonation && (
-        <CoinDonation
-          recipientUsername={profile.username}
-          balances={balances}
-          onClose={() => setShowDonation(false)}
-          onDone={() =>
-            api.get('/coins/balance/').then(({ data }) => setBalances(data.balances))
-          }
-        />
-      )}
     </Layout>
   );
 }

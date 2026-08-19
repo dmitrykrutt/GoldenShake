@@ -1,459 +1,456 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import api from '../lib/api';
-import { connect } from '../lib/ws';
-import { playCallEnd, playRingback, playRingtone, stopAllSounds } from '../lib/sounds';
+import { callSounds } from '../utils/callSounds';
 
-/**
- * Manages WebRTC audio/video calls via the backend signaling WS.
- *
- * @param {string|number} chatId  – chat room id used for the WS path
- * @param {string}        userId  – current authenticated user id (string)
- */
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ],
+};
+
 const AUDIO_CONSTRAINTS = {
   echoCancellation: true,
   noiseSuppression: true,
   autoGainControl: true,
   sampleRate: 48000,
   channelCount: 1,
-  latency: 0.01,
 };
 
-export function useWebRTC(chatId, userId, options = {}) {
-  const [callStatus, setCallStatus] = useState('idle'); // idle | calling | incoming | connecting | active | ended
+export function useWebRTC(roomId, currentUserId, socketRef, { onSystemMessage } = {}) {
+  const [callStatus, setCallStatus] = useState('idle');
+  const [callInfo, setCallInfo] = useState(null);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [callInfo, setCallInfo] = useState(null); // { callId, callerName, callerAvatar, callType }
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const [permissionError, setPermissionError] = useState('');
+  const [hasVideoTrack, setHasVideoTrack] = useState(false);
+  const [remoteHasVideo, setRemoteHasVideo] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [permissionError, setPermissionError] = useState('');
 
-  const wsRef = useRef(null);
+  const myClientIdRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `dev_${Math.random().toString(36).substring(2, 11)}`
+  );
+  const peerClientIdRef = useRef(null);
+
   const pcRef = useRef(null);
+  const timerRef = useRef(null);
   const localStreamRef = useRef(null);
-  const callInfoRef = useRef(null);
-  const callTypeRef = useRef('audio');
-  const connectedAtRef = useRef(null);
-  const durationTimerRef = useRef(null);
-  const timeoutTimerRef = useRef(null);
-  const iceServersRef = useRef([{ urls: 'stun:stun.l.google.com:19302' }]);
-  const pendingCandidatesRef = useRef([]);
-  const loggedRef = useRef(false);
-  const fallbackCallbackRef = useRef(options.onSystemMessage);
+  const remoteStreamRef = useRef(null);
+  const iceCandidatesQueue = useRef([]);
+  const isCallerRef = useRef(false);
+  const isVideoRequestedRef = useRef(false);
 
-  callInfoRef.current = callInfo;
-  fallbackCallbackRef.current = options.onSystemMessage;
-
-  // Fetch ICE servers once
-  useEffect(() => {
-    if (!chatId) return;
-    api
-      .get('/calls/ice-servers/')
-      .then((res) => {
-        const servers = res.data?.ice_servers;
-        if (Array.isArray(servers) && servers.length > 0) {
-          iceServersRef.current = servers;
-        }
-      })
-      .catch(() => {
-        // fallback already set
-      });
-  }, [chatId]);
-
-  const stopTracks = useCallback((stream) => {
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+  const cleanup = useCallback(() => {
+    callSounds.stop();
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
-  }, []);
-
-  const cleanupPc = useCallback(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
     if (pcRef.current) {
       pcRef.current.onicecandidate = null;
       pcRef.current.ontrack = null;
-      pcRef.current.oniceconnectionstatechange = null;
       pcRef.current.close();
       pcRef.current = null;
     }
-    pendingCandidatesRef.current = [];
-  }, []);
-
-  const stopDurationTimer = useCallback(() => {
-    if (durationTimerRef.current) {
-      clearInterval(durationTimerRef.current);
-      durationTimerRef.current = null;
-    }
-  }, []);
-
-  const stopTimeoutTimer = useCallback(() => {
-    if (timeoutTimerRef.current) {
-      clearTimeout(timeoutTimerRef.current);
-      timeoutTimerRef.current = null;
-    }
-  }, []);
-
-  const logCall = useCallback(async (callId, callType) => {
-    if (!callId) return;
-    if (loggedRef.current) return;
-    loggedRef.current = true;
-    const durationSec = connectedAtRef.current
-      ? Math.round((Date.now() - connectedAtRef.current) / 1000)
-      : 0;
-    try {
-      await api.post('/calls/logs/', {
-        call_id: callId,
-        chat_id: chatId,
-        duration_seconds: durationSec,
-        call_type: callType || callTypeRef.current || 'audio',
-      });
-    } catch {
-      // non-critical
-    }
-  }, [chatId]);
-
-  const teardown = useCallback(
-    (reason) => {
-      stopAllSounds();
-      stopDurationTimer();
-      stopTimeoutTimer();
-      stopTracks(localStreamRef.current);
-      localStreamRef.current = null;
-      setLocalStream(null);
-      setRemoteStream(null);
-      cleanupPc();
-      setDuration(0);
-      connectedAtRef.current = null;
-      loggedRef.current = false;
-      if (reason !== 'silent') {
-        setCallStatus('ended');
-        setTimeout(() => setCallStatus('idle'), 2000);
-      }
-    },
-    [cleanupPc, stopDurationTimer, stopTimeoutTimer, stopTracks],
-  );
-
-  const emitSystemMessage = useCallback((text) => {
-    fallbackCallbackRef.current?.(text);
-  }, []);
-
-  const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({
-      iceServers: iceServersRef.current,
-      sdpSemantics: 'unified-plan',
-    });
-    pc.onicecandidate = (event) => {
-      if (event.candidate && wsRef.current) {
-        wsRef.current.send({
-          action: 'ice_candidate',
-          candidate: event.candidate.toJSON(),
-        });
-      }
-    };
-    pc.ontrack = (event) => {
-      setRemoteStream(event.streams?.[0] || new MediaStream([event.track]));
-    };
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        if (!connectedAtRef.current) {
-          connectedAtRef.current = Date.now();
-          stopAllSounds();
-          stopTimeoutTimer();
-          stopDurationTimer();
-          durationTimerRef.current = setInterval(() => {
-            setDuration(Math.round((Date.now() - connectedAtRef.current) / 1000));
-          }, 1000);
-        }
-        setCallStatus('active');
-      }
-      if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
-        const info = callInfoRef.current;
-        logCall(info?.callId, info?.callType);
-        teardown('');
-      }
-    };
-    pcRef.current = pc;
-
-    // flush pending candidates
-    pendingCandidatesRef.current.forEach((c) => {
-      pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-    });
-    pendingCandidatesRef.current = [];
-
-    return pc;
-  }, [logCall, stopDurationTimer, stopTimeoutTimer, teardown]);
-
-  const getMedia = useCallback(async (withVideo) => {
-    try {
-      setPermissionError('');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: AUDIO_CONSTRAINTS,
-        video: withVideo ? { facingMode: 'user' } : false,
-      });
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      return stream;
-    } catch (err) {
-      const msg =
-        err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
-          ? 'Для звонков необходим доступ к микрофону. Разрешите доступ в настройках браузера и попробуйте снова.'
-          : 'Не удалось получить доступ к микрофону/камере.';
-      setPermissionError(msg);
-      throw err;
-    }
-  }, []);
-
-  const addTracks = useCallback((pc, stream) => {
-    stream.getTracks().forEach((track) => {
-      pc.addTrack(track, stream);
-    });
-  }, []);
-
-  // ----------- Signaling handlers -------------------------------------------
-  const handleIncoming = useCallback((msg) => {
-    if (msg.caller_id === String(userId)) return; // own broadcast
-    stopAllSounds();
-    playRingtone();
-    setCallInfo({
-      callId: msg.call_id,
-      callerName: msg.caller,
-      callType: msg.call_type,
-    });
-    setCallStatus('incoming');
-    // auto-decline after 30 s if not answered
-    timeoutTimerRef.current = setTimeout(() => {
-      wsRef.current?.send({ action: 'call_decline', call_id: msg.call_id });
-      setCallStatus('idle');
-      setCallInfo(null);
-      stopAllSounds();
-    }, 30000);
-  }, [userId]);
-
-  const handleAccepted = useCallback(
-    async (msg) => {
-      // only the caller handles this (callee gets their own accepted echo but we proceed)
-      if (msg.user_id === String(userId)) return; // callee sent it; caller continues
-      stopTimeoutTimer();
-      stopAllSounds();
-      setCallStatus('connecting');
-      const withVideo = callTypeRef.current === 'video';
-      try {
-        const stream = localStreamRef.current || (await getMedia(withVideo));
-        const pc = createPeerConnection();
-        addTracks(pc, stream);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        wsRef.current?.send({
-          action: 'offer',
-          sdp: pc.localDescription,
-          call_id: callInfoRef.current?.callId,
-        });
-      } catch {
-        teardown('');
-      }
-    },
-    [addTracks, createPeerConnection, getMedia, stopTimeoutTimer, teardown, userId],
-  );
-
-  const handleOffer = useCallback(
-    async (msg) => {
-      if (msg.sender_id === String(userId)) return;
-      setCallStatus('connecting');
-      const withVideo = callInfoRef.current?.callType === 'video';
-      try {
-        const stream = localStreamRef.current || (await getMedia(withVideo));
-        const pc = createPeerConnection();
-        addTracks(pc, stream);
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        wsRef.current?.send({
-          action: 'answer',
-          sdp: pc.localDescription,
-          call_id: msg.call_id,
-        });
-      } catch {
-        teardown('');
-      }
-    },
-    [addTracks, createPeerConnection, getMedia, teardown, userId],
-  );
-
-  const handleAnswer = useCallback(
-    async (msg) => {
-      if (msg.sender_id === String(userId)) return;
-      if (!pcRef.current) return;
-      try {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      } catch {
-        // ignore
-      }
-    },
-    [userId],
-  );
-
-  const handleIceCandidate = useCallback(async (msg) => {
-    if (!msg.candidate) return;
-    if (pcRef.current && pcRef.current.remoteDescription) {
-      try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
-      } catch {
-        // ignore
-      }
-    } else {
-      pendingCandidatesRef.current.push(msg.candidate);
-    }
-  }, []);
-
-  const handleEnded = useCallback(
-    (msg) => {
-      const info = callInfoRef.current;
-      logCall(info?.callId, info?.callType);
-      stopAllSounds();
-      if (msg.reason === 'declined') {
-        emitSystemMessage('📵 Звонок отклонён');
-      } else if (msg.reason === 'no_answer') {
-        emitSystemMessage('📵 Пропущенный звонок');
-      } else if (connectedAtRef.current) {
-        const totalSeconds = Math.round((Date.now() - connectedAtRef.current) / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        emitSystemMessage(
-          `📞 Звонок завершён · ${minutes ? `${minutes} мин ` : ''}${seconds} сек`
-        );
-      }
-      playCallEnd();
-      teardown(msg.reason === 'declined' ? 'declined' : '');
-    },
-    [emitSystemMessage, logCall, teardown],
-  );
-
-  // ----------- WS setup -----------------------------------------------------
-  useEffect(() => {
-    if (!chatId || !userId) return undefined;
-
-    const ws = connect(`/ws/calls/${chatId}/`, {
-      onMessage: (msg) => {
-        switch (msg.type) {
-          case 'call.incoming':
-            handleIncoming(msg);
-            break;
-          case 'call.accepted':
-            handleAccepted(msg);
-            break;
-          case 'call.offer':
-            handleOffer(msg);
-            break;
-          case 'call.answer':
-            handleAnswer(msg);
-            break;
-          case 'call.ice_candidate':
-            handleIceCandidate(msg);
-            break;
-          case 'call.ended':
-            handleEnded(msg);
-            break;
-          default:
-            break;
-        }
-      },
-    });
-    wsRef.current = ws;
-
-    return () => {
-      stopAllSounds();
-      ws.close();
-      wsRef.current = null;
-    };
-  }, [chatId, userId, handleIncoming, handleAccepted, handleOffer, handleAnswer, handleIceCandidate, handleEnded]);
-
-  // ----------- Public API ---------------------------------------------------
-  const startCall = useCallback(
-    async ({ video = false } = {}) => {
-      if (callStatus !== 'idle') return;
-      callTypeRef.current = video ? 'video' : 'audio';
-      try {
-        await getMedia(video);
-      } catch {
-        setCallStatus('idle');
-        return;
-      }
-
-      stopAllSounds();
-      playRingback();
-      setCallStatus('calling');
-      setCallInfo({ callType: video ? 'video' : 'audio' });
-
-      wsRef.current?.send({
-        action: 'call_start',
-        call_type: video ? 'video' : 'audio',
-      });
-
-      // timeout if no one answers in 30 s
-      timeoutTimerRef.current = setTimeout(() => {
-        wsRef.current?.send({ action: 'call_end', reason: 'no_answer' });
-        emitSystemMessage('📵 Пропущенный звонок');
-        stopAllSounds();
-        playCallEnd();
-        teardown('');
-        setCallInfo(null);
-      }, 30000);
-    },
-    [callStatus, emitSystemMessage, getMedia, teardown],
-  );
-
-  const acceptCall = useCallback(async () => {
-    stopTimeoutTimer();
-    const info = callInfoRef.current;
-    if (!info) return;
-    try {
-      await getMedia(info.callType === 'video');
-    } catch {
-      return;
-    }
-    stopAllSounds();
-    wsRef.current?.send({ action: 'call_accept', call_id: info.callId });
-    setCallStatus('connecting');
-  }, [getMedia, stopTimeoutTimer]);
-
-  const declineCall = useCallback(() => {
-    stopTimeoutTimer();
-    const info = callInfoRef.current;
-    stopAllSounds();
-    playCallEnd();
-    emitSystemMessage('📵 Звонок отклонён');
-    wsRef.current?.send({ action: 'call_decline', call_id: info?.callId });
+    remoteStreamRef.current = null;
+    peerClientIdRef.current = null;
+    setLocalStream(null);
+    setRemoteStream(null);
     setCallStatus('idle');
     setCallInfo(null);
-  }, [emitSystemMessage, stopTimeoutTimer]);
+    setDuration(0);
+    setIsMuted(false);
+    setIsVideoOff(false);
+    setHasVideoTrack(false);
+    setRemoteHasVideo(false);
+    setPermissionError('');
+    iceCandidatesQueue.current = [];
+    isCallerRef.current = false;
+    isVideoRequestedRef.current = false;
+  }, []);
 
-  const endCall = useCallback(() => {
-    const info = callInfoRef.current;
-    wsRef.current?.send({ action: 'call_end', call_id: info?.callId });
-    logCall(info?.callId, info?.callType);
-    if (connectedAtRef.current) {
-      const totalSeconds = Math.round((Date.now() - connectedAtRef.current) / 1000);
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = totalSeconds % 60;
-      emitSystemMessage(`📞 Звонок завершён · ${minutes ? `${minutes} мин ` : ''}${seconds} сек`);
+  const getMediaStream = async (wantVideo = false) => {
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('WebRTC недоступен. Требуется HTTPS соединение.');
     }
-    playCallEnd();
-    teardown('');
-  }, [emitSystemMessage, logCall, teardown]);
 
-  const toggleMute = useCallback(() => {
-    if (!localStreamRef.current) return;
-    localStreamRef.current.getAudioTracks().forEach((t) => {
-      t.enabled = !t.enabled;
-    });
-    setIsMuted((v) => !v);
-  }, []);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: AUDIO_CONSTRAINTS,
+        video: wantVideo ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      });
 
-  const toggleVideo = useCallback(() => {
-    if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach((t) => {
-      t.enabled = !t.enabled;
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+      setHasVideoTrack(wantVideo);
+      setIsVideoOff(!wantVideo);
+      return stream;
+    } catch (err) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        throw new Error('Разрешите доступ к микрофону/камере в настройках браузера.');
+      }
+      throw err;
+    }
+  };
+
+  const setupPeerConnection = useCallback((stream) => {
+    if (pcRef.current) return pcRef.current;
+
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    pcRef.current = pc;
+
+    if (typeof window !== 'undefined') {
+      remoteStreamRef.current = new MediaStream();
+    }
+
+    // Добавляем аудиодорожку
+    if (stream) {
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) pc.addTrack(audioTrack, stream);
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) pc.addTrack(videoTrack, stream);
+      else pc.addTransceiver('video', { direction: 'sendrecv' });
+    } else {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    }
+
+    pc.ontrack = (event) => {
+      if (event.track) {
+        if (!remoteStreamRef.current && typeof window !== 'undefined') {
+          remoteStreamRef.current = new MediaStream();
+        }
+        remoteStreamRef.current.addTrack(event.track);
+        setRemoteStream(new MediaStream(remoteStreamRef.current.getTracks()));
+
+        if (event.track.kind === 'video') {
+          setRemoteHasVideo(event.track.enabled && event.track.readyState === 'live');
+          event.track.onunmute = () => setRemoteHasVideo(true);
+          event.track.onmute = () => setRemoteHasVideo(false);
+          event.track.onended = () => setRemoteHasVideo(false);
+        }
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef?.current) {
+        socketRef.current.send({
+          action: 'call_ice_candidate',
+          payload: event.candidate,
+          client_id: myClientIdRef.current,
+          target_client_id: peerClientIdRef.current,
+          room_id: roomId,
+        });
+      }
+    };
+
+    return pc;
+  }, [roomId, socketRef]);
+
+  const handleCallEvent = useCallback(async (event) => {
+    switch (event.type) {
+      case 'chat.call_incoming': {
+        if (isCallerRef.current || event.caller_client_id === myClientIdRef.current) return;
+        
+        peerClientIdRef.current = event.caller_client_id;
+        const wantVideo = Boolean(event.is_video);
+        isVideoRequestedRef.current = wantVideo;
+        setHasVideoTrack(wantVideo);
+        setCallInfo({
+          callerId: event.caller_id,
+          callerName: event.caller_username,
+          callerAvatar: event.caller_avatar,
+          isVideo: wantVideo,
+        });
+        setCallStatus('incoming');
+        callSounds.playRingtone();
+        break;
+      }
+
+      case 'chat.call_accepted': {
+        if (isCallerRef.current && event.target_client_id === myClientIdRef.current) {
+          peerClientIdRef.current = event.accepted_client_id;
+          callSounds.stop();
+          setCallStatus('connected');
+
+          try {
+            const stream = localStreamRef.current || await getMediaStream(isVideoRequestedRef.current);
+            const pc = setupPeerConnection(stream);
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            });
+            await pc.setLocalDescription(offer);
+
+            socketRef?.current?.send({
+              action: 'call_offer',
+              payload: offer,
+              client_id: myClientIdRef.current,
+              target_client_id: event.accepted_client_id,
+              room_id: roomId,
+            });
+          } catch (err) {
+            console.error('Create offer error:', err);
+          }
+          return;
+        }
+
+        if (event.accepted_client_id !== myClientIdRef.current && !isCallerRef.current) {
+          cleanup();
+        }
+        break;
+      }
+
+      case 'chat.call_camera_toggle': {
+        if (event.sender_client_id === myClientIdRef.current) return;
+        setRemoteHasVideo(Boolean(event.is_camera_on));
+        break;
+      }
+
+      case 'chat.call_declined': {
+        cleanup();
+        onSystemMessage?.('Звонок отклонён');
+        break;
+      }
+
+      case 'chat.call_ended': {
+        if (
+          event.ended_client_id === peerClientIdRef.current ||
+          event.target_client_id === myClientIdRef.current ||
+          isCallerRef.current
+        ) {
+          cleanup();
+          onSystemMessage?.('Звонок завершён');
+        }
+        break;
+      }
+
+      case 'chat.call_offer': {
+        if (event.target_client_id && event.target_client_id !== myClientIdRef.current) return;
+
+        try {
+          peerClientIdRef.current = event.sender_client_id;
+          const stream = localStreamRef.current || await getMediaStream(isVideoRequestedRef.current);
+          const pc = setupPeerConnection(stream);
+
+          await pc.setRemoteDescription(new RTCSessionDescription(event.payload));
+
+          while (iceCandidatesQueue.current.length > 0) {
+            const candidate = iceCandidatesQueue.current.shift();
+            await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+          }
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          socketRef?.current?.send({
+            action: 'call_answer',
+            payload: answer,
+            client_id: myClientIdRef.current,
+            target_client_id: event.sender_client_id,
+            room_id: roomId,
+          });
+        } catch (err) {
+          console.error('Answer offer error:', err);
+        }
+        break;
+      }
+
+      case 'chat.call_answer': {
+        if (event.target_client_id && event.target_client_id !== myClientIdRef.current) return;
+
+        try {
+          if (pcRef.current) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(event.payload));
+            while (iceCandidatesQueue.current.length > 0) {
+              const candidate = iceCandidatesQueue.current.shift();
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error('Call answer error:', err);
+        }
+        break;
+      }
+
+      case 'chat.call_ice_candidate': {
+        if (event.target_client_id && event.target_client_id !== myClientIdRef.current) return;
+
+        try {
+          if (pcRef.current && pcRef.current.remoteDescription) {
+            await pcRef.current.addIceCandidate(new RTCIceCandidate(event.payload)).catch(() => {});
+          } else {
+            iceCandidatesQueue.current.push(event.payload);
+          }
+        } catch (err) {
+          console.error('Candidate error:', err);
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  }, [cleanup, onSystemMessage, roomId, setupPeerConnection, socketRef]);
+
+  useEffect(() => {
+    if (callStatus === 'connected') {
+      timerRef.current = setInterval(() => setDuration((p) => p + 1), 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [callStatus]);
+
+  const startCall = async ({ video = false }) => {
+    try {
+      setPermissionError('');
+      isCallerRef.current = true;
+      isVideoRequestedRef.current = video;
+      setCallInfo({ isVideo: video });
+      setCallStatus('calling');
+
+      const stream = await getMediaStream(video);
+      setupPeerConnection(stream);
+      callSounds.playRingback();
+
+      socketRef?.current?.send({
+        action: 'call_initiate',
+        client_id: myClientIdRef.current,
+        is_video: video,
+        room_id: roomId,
+      });
+    } catch (err) {
+      setPermissionError(err.message || 'Ошибка доступа к медиа');
+      cleanup();
+    }
+  };
+
+  const acceptCall = async () => {
+    try {
+      setPermissionError('');
+      callSounds.stop();
+      setCallStatus('connected');
+
+      const video = isVideoRequestedRef.current;
+      const stream = await getMediaStream(video);
+      setupPeerConnection(stream);
+
+      socketRef?.current?.send({
+        action: 'call_accept',
+        client_id: myClientIdRef.current,
+        target_client_id: peerClientIdRef.current,
+        room_id: roomId,
+      });
+    } catch (err) {
+      setPermissionError(err.message || 'Ошибка доступа к медиа');
+      cleanup();
+    }
+  };
+
+  const declineCall = () => {
+    socketRef?.current?.send({
+      action: 'call_decline',
+      client_id: myClientIdRef.current,
+      room_id: roomId,
     });
-    setIsVideoOff((v) => !v);
-  }, []);
+    cleanup();
+  };
+
+  const endCall = () => {
+    socketRef?.current?.send({
+      action: 'call_end',
+      client_id: myClientIdRef.current,
+      target_client_id: peerClientIdRef.current,
+      room_id: roomId,
+    });
+    cleanup();
+  };
+
+  const toggleMute = () => {
+    if (!localStreamRef.current) return;
+    const nextState = !isMuted;
+    localStreamRef.current.getAudioTracks().forEach((track) => {
+      track.enabled = !nextState;
+    });
+    setIsMuted(nextState);
+  };
+
+  const toggleVideo = async () => {
+    if (!localStreamRef.current || !pcRef.current) return;
+
+    const currentVideoTrack = localStreamRef.current.getVideoTracks()[0];
+    const videoSender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video' || (s.dtlsTransport && !s.track));
+
+    if (currentVideoTrack && hasVideoTrack && !isVideoOff) {
+      // 1. Выключаем камеру
+      currentVideoTrack.enabled = false;
+      currentVideoTrack.stop();
+      localStreamRef.current.removeTrack(currentVideoTrack);
+      if (videoSender) {
+        await videoSender.replaceTrack(null);
+      }
+      setIsVideoOff(true);
+      setHasVideoTrack(false);
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+      socketRef?.current?.send({
+        action: 'call_camera_toggle',
+        client_id: myClientIdRef.current,
+        target_client_id: peerClientIdRef.current,
+        is_camera_on: false,
+        room_id: roomId,
+      });
+    } else {
+      // 2. Включаем камеру
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        const newTrack = videoStream.getVideoTracks()[0];
+        localStreamRef.current.addTrack(newTrack);
+
+        if (videoSender) {
+          await videoSender.replaceTrack(newTrack);
+        } else {
+          pcRef.current.addTrack(newTrack, localStreamRef.current);
+          const offer = await pcRef.current.createOffer();
+          await pcRef.current.setLocalDescription(offer);
+          socketRef?.current?.send({
+            action: 'call_offer',
+            payload: offer,
+            client_id: myClientIdRef.current,
+            target_client_id: peerClientIdRef.current,
+            room_id: roomId,
+          });
+        }
+
+        setHasVideoTrack(true);
+        setIsVideoOff(false);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+        socketRef?.current?.send({
+          action: 'call_camera_toggle',
+          client_id: myClientIdRef.current,
+          target_client_id: peerClientIdRef.current,
+          is_camera_on: true,
+          room_id: roomId,
+        });
+      } catch (err) {
+        setPermissionError('Не удалось получить доступ к камере.');
+      }
+    }
+  };
 
   return {
     callStatus,
@@ -462,6 +459,8 @@ export function useWebRTC(chatId, userId, options = {}) {
     remoteStream,
     isMuted,
     isVideoOff,
+    hasVideoTrack,
+    remoteHasVideo,
     duration,
     permissionError,
     startCall,
@@ -470,7 +469,6 @@ export function useWebRTC(chatId, userId, options = {}) {
     endCall,
     toggleMute,
     toggleVideo,
+    handleCallEvent,
   };
 }
-
-export default useWebRTC;
