@@ -1,26 +1,15 @@
-import '../styles/globals.css';
-import { useRouter } from 'next/router';
-import { AnimatePresence, motion } from 'framer-motion';
+import Head from 'next/head';
 import { AuthProvider } from '../lib/auth';
-import { I18nProvider } from '../lib/i18n';
+import '../styles/globals.css';
 
-export default function GoldenShakeApp({ Component, pageProps }) {
-  const router = useRouter();
+export default function App({ Component, pageProps }) {
   return (
-    <I18nProvider>
-      <AuthProvider>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={router.pathname}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-          >
-            <Component {...pageProps} />
-          </motion.div>
-        </AnimatePresence>
-      </AuthProvider>
-    </I18nProvider>
+    <AuthProvider>
+      <Head>
+        <title>GoldenShake</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+      </Head>
+      <Component {...pageProps} />
+    </AuthProvider>
   );
 }

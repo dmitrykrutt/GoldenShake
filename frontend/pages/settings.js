@@ -1,3 +1,4 @@
+const useI18n = () => ({ t: (k) => k, lang: "ru", setLang: () => {} });
 import { useCallback, useEffect, useState } from 'react';
 import {
   BellIcon,
@@ -14,7 +15,6 @@ import { useRequireAuth } from '../lib/auth';
 import Username from '../components/Username';
 import { HANDSHAKE_LEVELS, USERNAME_GRADIENTS } from '../lib/badges';
 import { THEMES } from '../lib/themes';
-import { useI18n } from '../lib/i18n';
 
 const TABS = [
   { key: 'profile', label: 'Профиль', icon: UserIcon },
